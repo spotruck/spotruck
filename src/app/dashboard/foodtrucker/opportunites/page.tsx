@@ -90,7 +90,7 @@ export default async function OpportunitesPage() {
       ? `${foodtrucker.prenom_gerant} ${foodtrucker.nom_gerant}`
       : foodtrucker?.prenom_gerant || "",
     initials: foodtrucker?.nom_truck ? foodtrucker.nom_truck[0].toUpperCase() : "F",
-    planLabel: {
+    planLabel: ({[key: string]: string})
       free: "Plan Free",
       pro: "Plan Pro",
       premium: "Plan Premium",

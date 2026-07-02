@@ -96,6 +96,7 @@ export default async function OpportunitesPage() {
       premium: "Plan Premium",
       saison: "Plan Saison"
     } as Record<string, string>)[userPlan as string],
+  };
 
   // Transformer les données Supabase pour le client
   const evenementsFormatted = (evenements || []).map((ev) => {

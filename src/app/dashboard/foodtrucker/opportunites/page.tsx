@@ -90,13 +90,12 @@ export default async function OpportunitesPage() {
       ? `${foodtrucker.prenom_gerant} ${foodtrucker.nom_gerant}`
       : foodtrucker?.prenom_gerant || "",
     initials: foodtrucker?.nom_truck ? foodtrucker.nom_truck[0].toUpperCase() : "F",
-    planLabel: ({[key: string]: string})
+    planLabel: ({
       free: "Plan Free",
       pro: "Plan Pro",
       premium: "Plan Premium",
       saison: "Plan Saison"
-    }[userPlan] || "Plan Free",
-  };
+    } as Record<string, string>)[userPlan as string]
 
   // Transformer les données Supabase pour le client
   const evenementsFormatted = (evenements || []).map((ev) => {

@@ -1,4 +1,7 @@
 "use client";
+import dynamic from "next/dynamic";
+const OpportunitesMap = dynamic(() => import("./OpportunitesMap"), { ssr: false });
+"use client";
 
 import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
@@ -665,6 +668,7 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
 
             {/* ── Cartes ── */}
             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              <OpportunitesMap evenements={filtered.map(ev => ({ id: ev.id, titre: ev.titre, ville: ev.ville, date: ev.date, budgetLabel: ev.budgetLabel, coords: null }))} onVoirDetail={(id) => { const ev = filtered.find(e => e.id === id); if(ev) setSelectedEvent(ev); }} />
               {filtered.map((ev) => {
                 const isSaved = saved.has(ev.id);
                 const isCandide = candide.has(ev.id);

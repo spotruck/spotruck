@@ -17,7 +17,7 @@ const S = {
 };
 
 // ─── Pièces jointes ───────────────────────────────────────────
-interface Attachment { id:string; name:string; size:string; mime:"pdf"|"doc"|"image" }
+interface Attachment { id:string; name:string; size:string; mime:"pdf"|"doc"|"image"; url?:string }
 const ACCEPT_TYPES = ".pdf,.doc,.docx,.jpg,.jpeg,.png";
 const MAX_FILES    = 3;
 const MAX_MB       = 10;
@@ -131,7 +131,8 @@ function MessageBubble({ m, isGroupe }: { m:Message; isGroupe?:boolean }) {
         {m.attachments && m.attachments.length > 0 && (
           <div style={{ marginTop:"0.6rem", display:"flex", flexDirection:"column", gap:"0.3rem" }}>
             {m.attachments.map(f => (
-              <div key={f.id} style={{ display:"flex", alignItems:"center", gap:"0.5rem", padding:"0.4rem 0.65rem", backgroundColor: isOrga ? "rgba(255,255,255,0.15)" : "rgba(44,26,16,0.06)", borderRadius:4 }}>
+              <div key={f.id} onClick={() => { if (f.url) window.open(f.url, "_blank", "noopener,noreferrer"); }}
+                style={{ display:"flex", alignItems:"center", gap:"0.5rem", padding:"0.4rem 0.65rem", backgroundColor: isOrga ? "rgba(255,255,255,0.15)" : "rgba(44,26,16,0.06)", borderRadius:4, cursor: f.url ? "pointer" : "default" }}>
                 <AttachIcon mime={f.mime} size={12} />
                 <div style={{ flex:1, minWidth:0 }}>
                   <p style={{ fontFamily:S.sans, fontSize:"0.68rem", fontWeight:500, color: isOrga ? "#fff" : S.brown, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</p>
@@ -161,7 +162,7 @@ function MessageInput({ draft, onDraftChange, pending, onPendingChange, onSend, 
   const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     const toAdd = files.slice(0, MAX_FILES - pending.length).filter(f => f.size <= MAX_MB * 1024 * 1024)
-      .map(f => ({ id:`a-${Date.now()}-${Math.random()}`, name:f.name, size:fmtSize(f.size), mime:mimeOf(f.name) }));
+      .map(f => ({ id:`a-${Date.now()}-${Math.random()}`, name:f.name, size:fmtSize(f.size), mime:mimeOf(f.name), url:URL.createObjectURL(f) }));
     onPendingChange([...pending, ...toAdd]);
     if (fileRef.current) fileRef.current.value = "";
   };
@@ -226,7 +227,7 @@ function NouvelleConvModal({ onClose, onCreer }: {
     const toAdd = files
       .slice(0, MAX_FILES - attachments.length)
       .filter(f => f.size <= MAX_MB * 1024 * 1024)
-      .map(f => ({ id:`nc-${Date.now()}-${Math.random()}`, name:f.name, size:fmtSize(f.size), mime:mimeOf(f.name) }));
+      .map(f => ({ id:`nc-${Date.now()}-${Math.random()}`, name:f.name, size:fmtSize(f.size), mime:mimeOf(f.name), url:URL.createObjectURL(f) }));
     setAttachments(prev => [...prev, ...toAdd]);
     if (fileRef.current) fileRef.current.value = "";
   };

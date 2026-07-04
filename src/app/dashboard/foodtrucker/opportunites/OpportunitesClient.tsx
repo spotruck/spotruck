@@ -1,7 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
 const OpportunitesMap = dynamic(() => import("./OpportunitesMap"), { ssr: false });
-"use client";
 
 import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";

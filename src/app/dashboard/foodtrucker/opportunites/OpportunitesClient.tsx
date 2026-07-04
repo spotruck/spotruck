@@ -4,10 +4,11 @@ const OpportunitesMap = dynamic(() => import("./OpportunitesMap"), { ssr: false 
 
 import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
+import { createClient } from "@/lib/supabase/client";
 import {
   MapPin, Users, Euro, CalendarDays, SlidersHorizontal, ArrowRight, X,
   Search, CheckCircle, AlertCircle, RotateCcw, Bookmark, BookmarkCheck,
-  ExternalLink, Mail, FileText, Send, Copy, AlertTriangle, Clock,
+  ExternalLink, Mail, Send, Copy, AlertTriangle, Clock,
 } from "lucide-react";
 
 // ─── Design tokens ────────────────────────────────────────────
@@ -66,6 +67,7 @@ interface Props {
   initialEvenements: Evenement[];
   userPlan: "free" | "pro" | "premium" | "saison";
   userData: UserData;
+  foodtruckerId: string;
 }
 
 // Documents disponibles dans le profil mock du foodtrucker
@@ -123,54 +125,16 @@ function Toast({ message, color, onDone }: { message: string; color: string; onD
   );
 }
 
-// ─── Popup suivi candidature ──────────────────────────────────
-function PopupSuivi({ titre, onOui, onNon }: { titre: string; onOui: () => void; onNon: () => void }) {
-  return (
-    <div style={{
-      position: "fixed", inset: 0, backgroundColor: "rgba(44,24,16,0.5)",
-      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2500,
-    }}>
-      <div style={{
-        backgroundColor: S.cream, border: `1px solid ${S.border}`,
-        padding: "2rem", maxWidth: 440, width: "100%", margin: "1rem",
-      }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem", marginBottom: "1.5rem" }}>
-          <FileText size={20} color={S.terra} strokeWidth={1.5} style={{ flexShrink: 0, marginTop: 2 }} />
-          <div>
-            <h3 style={{ fontFamily: S.serif, fontSize: "1.2rem", fontWeight: 700, color: S.brown, marginBottom: "0.5rem" }}>
-              Suivre cette candidature ?
-            </h3>
-            <p style={{ fontFamily: S.sans, fontSize: "0.8rem", fontWeight: 300, color: S.muted, lineHeight: 1.6 }}>
-              Voulez-vous ajouter <strong style={{ color: S.brown, fontWeight: 500 }}>"{titre}"</strong> à vos candidatures pour suivre son avancement ?
-            </p>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: "0.75rem" }}>
-          <button onClick={onOui} style={{
-            flex: 1, backgroundColor: S.terra, color: "#fff", border: "none",
-            padding: "0.875rem", fontFamily: S.sans, fontSize: "0.65rem",
-            letterSpacing: "0.2em", cursor: "pointer",
-          }}>OUI, AJOUTER AU SUIVI</button>
-          <button onClick={onNon} style={{
-            backgroundColor: "transparent", color: S.muted, border: `1px solid ${S.border}`,
-            padding: "0.875rem 1.25rem", fontFamily: S.sans, fontSize: "0.65rem",
-            letterSpacing: "0.2em", cursor: "pointer",
-          }}>NON MERCI</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Modale fiche complète ────────────────────────────────────
 function ModaleFiche({
-  event, saved, onClose, onSave, onCandidature,
+  event, saved, submitting, onClose, onSave, onCandidature,
 }: {
   event: Evenement;
   saved: boolean;
+  submitting: boolean;
   onClose: () => void;
   onSave: () => void;
-  onCandidature: () => void;
+  onCandidature: (message: string) => void;
 }) {
   const [message, setMessage] = useState("");
   const [joinDocs, setJoinDocs] = useState(true);
@@ -383,16 +347,16 @@ function ModaleFiche({
                   </span>
                 </label>
                 <button
-                  disabled={message.trim().length < 20}
-                  onClick={onCandidature}
+                  disabled={message.trim().length < 20 || submitting}
+                  onClick={() => onCandidature(message.trim())}
                   style={{
                     ...btnBase,
-                    backgroundColor: message.trim().length >= 20 ? S.terra : S.muted,
+                    backgroundColor: message.trim().length >= 20 && !submitting ? S.terra : S.muted,
                     color: "#fff",
-                    cursor: message.trim().length >= 20 ? "pointer" : "not-allowed",
+                    cursor: message.trim().length >= 20 && !submitting ? "pointer" : "not-allowed",
                   }}
                 >
-                  <Send size={14} strokeWidth={1.5} /> ENVOYER MA CANDIDATURE
+                  <Send size={14} strokeWidth={1.5} /> {submitting ? "ENVOI EN COURS…" : "ENVOYER MA CANDIDATURE"}
                 </button>
                 {message.trim().length > 0 && message.trim().length < 20 && (
                   <p style={{ fontFamily: S.sans, fontSize: "0.7rem", color: S.terra, marginTop: "0.5rem" }}>Minimum 20 caractères requis.</p>
@@ -430,7 +394,7 @@ function ModaleFiche({
 }
 
 // ─── Page principale ──────────────────────────────────────────
-export default function OpportunitesClient({ initialEvenements, userPlan, userData }: Props) {
+export default function OpportunitesClient({ initialEvenements, userPlan, userData, foodtruckerId }: Props) {
   const [query, setQuery]               = useState("");
   const [region, setRegion]             = useState("Toutes les régions");
   const [typesChecked, setTypesChecked] = useState<string[]>([]);
@@ -444,7 +408,7 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
   const [candide, setCandide]       = useState<Set<number>>(new Set());
   const [modalEvent, setModalEvent] = useState<Evenement | null>(null);
   const [toast, setToast]           = useState<{ msg: string; color: string } | null>(null);
-  const [suiviEvent, setSuiviEvent] = useState<Evenement | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   // Hydration localStorage
   useEffect(() => {
@@ -491,15 +455,29 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
     });
   }
 
-  function handleCandidature(ev: Evenement) {
+  async function handleCandidature(ev: Evenement, message: string) {
+    setSubmitting(true);
+    const supabase = createClient();
+    const { error } = await supabase.from("candidatures").insert({
+      evenement_id: String(ev.id),
+      foodtrucker_id: foodtruckerId,
+      message,
+      statut: "en_attente",
+    });
+    setSubmitting(false);
+
+    if (error) {
+      const dejaCandidate = error.code === "23505"; // contrainte UNIQUE(evenement_id, foodtrucker_id)
+      setToast({
+        msg: dejaCandidate ? "Vous avez déjà postulé à cet événement." : "Erreur lors de l'envoi de la candidature. Réessayez.",
+        color: "#C0392B",
+      });
+      return;
+    }
+
     setCandide(s => new Set(s).add(ev.id));
     setModalEvent(null);
-    setSuiviEvent(ev);
-  }
-
-  function handleSuiviOui() {
-    setToast({ msg: `"${suiviEvent?.titre}" ajouté à vos candidatures !`, color: "#2C7A4B" });
-    setSuiviEvent(null);
+    setToast({ msg: `Candidature envoyée pour "${ev.titre}" !`, color: "#2C7A4B" });
   }
 
   const selectStyle: React.CSSProperties = {
@@ -667,7 +645,7 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
 
             {/* ── Cartes ── */}
             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-              <OpportunitesMap evenements={filtered.map(ev => ({ id: ev.id, titre: ev.titre, ville: ev.ville, date: ev.date, budgetLabel: ev.budgetLabel, coords: null }))} onVoirDetail={(id) => { const ev = filtered.find(e => e.id === id); if(ev) setSelectedEvent(ev); }} />
+              <OpportunitesMap evenements={filtered.map(ev => ({ id: ev.id, titre: ev.titre, ville: ev.ville, date: ev.date, budgetLabel: ev.budgetLabel, coords: null }))} onVoirDetail={(id) => { const ev = filtered.find(e => e.id === id); if(ev) setModalEvent(ev); }} />
               {filtered.map((ev) => {
                 const isSaved = saved.has(ev.id);
                 const isCandide = candide.has(ev.id);
@@ -920,18 +898,10 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
         <ModaleFiche
           event={modalEvent}
           saved={saved.has(modalEvent.id)}
+          submitting={submitting}
           onClose={() => setModalEvent(null)}
           onSave={() => toggleSave(modalEvent.id)}
-          onCandidature={() => handleCandidature(modalEvent)}
-        />
-      )}
-
-      {/* ── Popup suivi ── */}
-      {suiviEvent && (
-        <PopupSuivi
-          titre={suiviEvent.titre}
-          onOui={handleSuiviOui}
-          onNon={() => { setSuiviEvent(null); setToast({ msg: "Candidature envoyée !", color: "#2C7A4B" }); }}
+          onCandidature={(message) => handleCandidature(modalEvent, message)}
         />
       )}
 

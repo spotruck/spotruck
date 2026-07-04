@@ -172,6 +172,7 @@ export default async function OpportunitesPage() {
       initialEvenements={evenementsFormatted}
       userPlan={userPlan as "free" | "pro" | "premium" | "saison"}
       userData={userData}
+      foodtruckerId={user.id}
     />
   );
 }

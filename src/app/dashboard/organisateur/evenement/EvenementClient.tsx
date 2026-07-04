@@ -6,7 +6,7 @@ import OrganisateurSidebar from "@/components/dashboard/OrganisateurSidebar";
 import { createClient } from "@/lib/supabase/client";
 import {
   ChevronRight, ChevronLeft, CheckCircle, Zap, Plus, Minus,
-  Upload, FileText, X, AlertTriangle, Eye,
+  Upload, FileText, X, AlertTriangle, Eye, Download,
 } from "lucide-react";
 
 // ─── Design tokens ────────────────────────────────────────────
@@ -105,7 +105,7 @@ const TRANCHES_AGE = [
   "Enfants (0-12 ans)", "Adolescents (13-17 ans)", "Jeunes adultes (18-25 ans)",
   "Adultes (26-39 ans)", "Adultes (40-59 ans)", "Seniors (60 ans et +)", "Tout public (toutes tranches)",
 ];
-const DOCS = ["KBIS", "HACCP", "RC Pro", "Conformité gaz", "Conformité électrique", "Contrôle hygiène"];
+const DOCS = ["KBIS", "HACCP", "RC Pro", "Photos du truck", "Pièce d'identité", "Carte grise", "Attestation formation hygiène"];
 const MODELE_FIN = [
   { key:"droit",        label:"Droit de place",               sub:"Le truck vous paie un montant fixe pour participer" },
   { key:"privatisation",label:"Privatisation",                sub:"Vous rémunérez le truck pour sa prestation" },
@@ -148,6 +148,256 @@ const OBL_ORG_DEFAULT = [
   { label:"Informer le truck des règles du site", checked:true },
   { label:"Payer dans les délais convenus", checked:true },
 ];
+
+function fmtDateFR(iso: string) {
+  if (!iso) return "—";
+  const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+}
+
+interface ContratPDFData {
+  organisateurNom: string;
+  siretOrga: string;
+  adresseOrga: string;
+  titre: string;
+  typeEvt: string;
+  description: string;
+  dateDebut: string;
+  dateFin: string;
+  heureDebut: string;
+  heureFin: string;
+  lieu: string;
+  visiteurs: string;
+  modeleLabel: string;
+  modeleMontant: string;
+  acompte: number;
+  soldeDate: string;
+  precisions: string;
+  docs: string[];
+  oblFt: { label: string; checked: boolean; heures: string }[];
+  autreOblFt: string;
+  oblOrg: { label: string; checked: boolean }[];
+  autreOblOrg: string;
+  paliers: { delai: string; remboursement: number }[];
+}
+
+// ─── Génération du contrat PDF (modèle inspiré du cahier des charges
+//     des Fêtes de Bayonne — convention d'occupation pour foodtrucks) ──
+async function genererContratPDF(d: ContratPDFData) {
+  const { default: jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+  const marginX = 15;
+  const pageW = 210;
+  const contentW = pageW - marginX * 2;
+  const pageBottom = 280;
+  let y = 20;
+
+  const setBrown = () => doc.setTextColor(44, 24, 16);
+  const setMuted = () => doc.setTextColor(100, 90, 80);
+  const setTerra = () => doc.setTextColor(196, 98, 43);
+
+  const checkBreak = (need: number) => {
+    if (y + need > pageBottom) {
+      doc.addPage();
+      y = 20;
+    }
+  };
+
+  const h1 = (title: string) => {
+    checkBreak(16);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    setBrown();
+    doc.text(title, marginX, y);
+    y += 3;
+    doc.setDrawColor(212, 201, 188);
+    doc.line(marginX, y, pageW - marginX, y);
+    y += 7;
+  };
+
+  const paragraph = (text: string, opts?: { bold?: boolean; size?: number }) => {
+    doc.setFont("helvetica", opts?.bold ? "bold" : "normal");
+    doc.setFontSize(opts?.size ?? 9.5);
+    setMuted();
+    const lines = doc.splitTextToSize(text, contentW);
+    lines.forEach((line: string) => {
+      checkBreak(6);
+      doc.text(line, marginX, y);
+      y += 5.5;
+    });
+    y += 2;
+  };
+
+  const bullet = (text: string) => {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    setMuted();
+    const lines = doc.splitTextToSize(text, contentW - 6);
+    checkBreak(lines.length * 5.5);
+    doc.text("•", marginX, y);
+    doc.text(lines, marginX + 5, y);
+    y += lines.length * 5.5 + 1;
+  };
+
+  const ref = `CT-${(d.titre || "EVT").replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase()}-${d.dateDebut.replace(/-/g, "") || "XXXX"}`;
+
+  // ── En-tête ──
+  doc.setFillColor(44, 24, 16);
+  doc.rect(0, 0, pageW, 38, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(255, 255, 255);
+  doc.text("SPOTRUCK", marginX, 17);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  setTerra();
+  doc.text("MARKETPLACE FOODTRUCK & ÉVÉNEMENTS", marginX, 25);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(255, 255, 255);
+  doc.text("CONTRAT DE PRESTATION", pageW - marginX, 17, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(`Réf. ${ref}`, pageW - marginX, 24, { align: "right" });
+  doc.text(`Généré le ${fmtDateFR(new Date().toISOString().slice(0, 10))}`, pageW - marginX, 30, { align: "right" });
+
+  y = 48;
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(10);
+  setBrown();
+  doc.text(`Convention d'occupation temporaire — "${d.titre || "Événement à préciser"}"`, pageW / 2, y, { align: "center" });
+  y += 10;
+
+  // ── Préambule / Parties ──
+  h1("ENTRE LES SOUSSIGNÉS");
+  paragraph(
+    `${d.organisateurNom}${d.siretOrga ? `, SIRET ${d.siretOrga}` : ""}${d.adresseOrga ? `, domicilié(e) au ${d.adresseOrga}` : ""}, ci-après dénommé « l'Organisateur »,`
+  );
+  paragraph(`ET`, { bold: true, size: 9 });
+  paragraph(`Le prestataire de restauration mobile (foodtruck) retenu par l'Organisateur dans le cadre de la présente manifestation, ci-après dénommé « le Prestataire ».`);
+  y += 2;
+  paragraph(`Il est convenu ce qui suit :`, { bold: true });
+
+  // ── Article 1 — Objet ──
+  h1("ARTICLE 1 — OBJET DU CONTRAT");
+  paragraph(
+    `Le présent contrat a pour objet de définir les conditions dans lesquelles le Prestataire est autorisé à exercer une activité de restauration mobile lors de la manifestation intitulée "${d.titre || "[titre]"}"${d.typeEvt ? ` (${d.typeEvt})` : ""}, organisée par l'Organisateur.`
+  );
+  if (d.description) paragraph(d.description);
+  if (d.precisions) paragraph(`Précisions complémentaires : ${d.precisions}`);
+
+  // ── Article 2 — Dates et lieu ──
+  h1("ARTICLE 2 — DATES, HORAIRES ET LIEU");
+  const periode = d.dateFin && d.dateFin !== d.dateDebut
+    ? `du ${fmtDateFR(d.dateDebut)} au ${fmtDateFR(d.dateFin)}`
+    : `le ${fmtDateFR(d.dateDebut)}`;
+  paragraph(`La manifestation se déroulera ${periode}${d.heureDebut ? `, de ${d.heureDebut}${d.heureFin ? ` à ${d.heureFin}` : ""}` : ""}, à l'adresse suivante : ${d.lieu || "[lieu à préciser]"}.`);
+  if (d.visiteurs) paragraph(`Fréquentation prévisionnelle : environ ${d.visiteurs} visiteurs.`);
+
+  // ── Article 3 — Conditions financières ──
+  h1("ARTICLE 3 — CONDITIONS FINANCIÈRES");
+  paragraph(`Modèle de rémunération retenu : ${d.modeleLabel || "—"}.`);
+  paragraph(`Montant convenu : ${d.modeleMontant || "—"}.`);
+  paragraph(`Un acompte de ${d.acompte}% est exigible à la signature du présent contrat. Le solde (${100 - d.acompte}%) sera versé au plus tard le ${fmtDateFR(d.soldeDate)}.`);
+
+  // ── Article 4 — Documents requis ──
+  h1("ARTICLE 4 — DOCUMENTS À FOURNIR PAR LE PRESTATAIRE");
+  if (d.docs.length > 0) {
+    paragraph("Préalablement à la manifestation, le Prestataire s'engage à transmettre à l'Organisateur les documents suivants :");
+    d.docs.forEach(doc_ => bullet(doc_));
+  } else {
+    paragraph("Aucun document spécifique n'est exigé pour cette manifestation.");
+  }
+
+  // ── Article 5 — Obligations du Prestataire ──
+  h1("ARTICLE 5 — OBLIGATIONS DU PRESTATAIRE");
+  const oblFtChecked = d.oblFt.filter(o => o.checked);
+  oblFtChecked.forEach((o, i) => bullet(`${o.label}${o.heures && i === 0 ? ` (${o.heures}h avant l'ouverture)` : ""}.`));
+  if (d.autreOblFt) bullet(`${d.autreOblFt}.`);
+
+  // ── Article 6 — Obligations de l'Organisateur ──
+  h1("ARTICLE 6 — OBLIGATIONS DE L'ORGANISATEUR");
+  d.oblOrg.filter(o => o.checked).forEach(o => bullet(`${o.label}.`));
+  if (d.autreOblOrg) bullet(`${d.autreOblOrg}.`);
+
+  // ── Article 7 — Conditions d'annulation ──
+  h1("ARTICLE 7 — CONDITIONS D'ANNULATION");
+  paragraph("En cas d'annulation par l'une des parties, le remboursement des sommes versées s'effectue selon le barème suivant :");
+  checkBreak(10 + d.paliers.length * 7);
+  doc.setFillColor(237, 232, 223);
+  doc.rect(marginX, y, contentW, 8, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(140, 123, 110);
+  doc.text("DÉLAI AVANT L'ÉVÉNEMENT", marginX + 3, y + 5.5);
+  doc.text("REMBOURSEMENT", marginX + contentW / 2 + 3, y + 5.5);
+  y += 8;
+  d.paliers.forEach((p, i) => {
+    checkBreak(8);
+    if (i % 2 === 0) {
+      doc.setFillColor(249, 246, 241);
+      doc.rect(marginX, y, contentW, 7.5, "F");
+    }
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    setBrown();
+    doc.text(p.delai, marginX + 3, y + 5.2);
+    doc.text(`${p.remboursement}%`, marginX + contentW / 2 + 3, y + 5.2);
+    y += 7.5;
+  });
+  y += 4;
+
+  // ── Article 8 — Résiliation ──
+  h1("ARTICLE 8 — RÉSILIATION");
+  paragraph("En cas de manquement grave de l'une des parties à ses obligations contractuelles, l'autre partie peut résilier le présent contrat avec un préavis de 48 heures, notifié par écrit. Les sommes versées restent acquises selon les conditions d'annulation définies à l'article 7.");
+
+  // ── Article 9 — Droit applicable et litiges ──
+  h1("ARTICLE 9 — DROIT APPLICABLE ET LITIGES");
+  paragraph("Le présent contrat est soumis au droit français. En cas de différend relatif à son interprétation ou à son exécution, les parties s'efforceront de trouver une solution amiable avant toute saisine des juridictions compétentes.");
+
+  // ── Signatures ──
+  checkBreak(55);
+  y += 4;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.5);
+  setMuted();
+  doc.text(`Fait à ${d.lieu ? d.lieu.split(",").pop()?.trim() || "__________" : "__________"}, le ${fmtDateFR(new Date().toISOString().slice(0, 10))}, en deux exemplaires originaux.`, marginX, y);
+  y += 14;
+
+  const sigColW = contentW / 2 - 5;
+  [
+    { label: "L'ORGANISATEUR", name: d.organisateurNom },
+    { label: "LE PRESTATAIRE (FOODTRUCK)", name: "___________________________" },
+  ].forEach((s, i) => {
+    const x = marginX + i * (sigColW + 10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    setBrown();
+    doc.text(s.label, x, y);
+    doc.setDrawColor(44, 24, 16);
+    doc.line(x, y + 22, x + sigColW, y + 22);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    setMuted();
+    doc.text(`${s.name} — Date : ___________`, x, y + 27);
+  });
+
+  // ── Pied de page (toutes les pages) ──
+  const nbPages = doc.getNumberOfPages();
+  for (let p = 1; p <= nbPages; p++) {
+    doc.setPage(p);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(140, 123, 110);
+    doc.text("Spotruck SAS — Contrat généré via la plateforme Spotruck — document contractuel à valeur probante après signature", pageW / 2, 290, { align: "center" });
+    doc.text(`Page ${p}/${nbPages}`, pageW - marginX, 290, { align: "right" });
+  }
+
+  doc.save(`${ref}.pdf`);
+}
 
 interface Props {
   organisateurId: string;
@@ -207,7 +457,9 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
   const [acces,     setAcces]     = useState(true);
 
   // ── Étape 3 ──────────────────────────────────────────────
-  const [docs,         setDocs]         = useState<string[]>([]);
+  const [docs,             setDocs]             = useState<string[]>([]);
+  const [docsPersonnalises,setDocsPersonnalises] = useState<string[]>([]);
+  const [nouveauDoc,       setNouveauDoc]       = useState("");
   const [noteMin,      setNoteMin]      = useState(3);
   const [exclu,        setExclu]        = useState(false);
   const [excluType,    setExcluType]    = useState("");
@@ -237,6 +489,19 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
 
   // ── Helpers ───────────────────────────────────────────────
   const toggleDoc = (d: string) => setDocs(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+
+  const ajouterDocPersonnalise = () => {
+    const v = nouveauDoc.trim();
+    if (!v || docsPersonnalises.includes(v)) return;
+    setDocsPersonnalises(prev => [...prev, v]);
+    setDocs(prev => [...prev, v]);
+    setNouveauDoc("");
+  };
+
+  const supprimerDocPersonnalise = (d: string) => {
+    setDocsPersonnalises(prev => prev.filter(x => x !== d));
+    setDocs(prev => prev.filter(x => x !== d));
+  };
 
   const updateTruckCount = (n: number) => {
     const clamped = Math.max(1, n);
@@ -289,6 +554,34 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
     if (contratMode === "spotruck" && contratValidated) return "Contrat Spotruck généré";
     if (contratMode === "aucun") return "⚠️ Aucun contrat";
     return "Non défini";
+  };
+
+  const telechargerContratPDF = () => {
+    genererContratPDF({
+      organisateurNom,
+      siretOrga,
+      adresseOrga,
+      titre,
+      typeEvt,
+      description,
+      dateDebut,
+      dateFin,
+      heureDebut,
+      heureFin,
+      lieu,
+      visiteurs,
+      modeleLabel: MODELE_FIN.find(m => m.key === modele)?.label ?? "",
+      modeleMontant: modeleResume(),
+      acompte,
+      soldeDate,
+      precisions,
+      docs,
+      oblFt,
+      autreOblFt,
+      oblOrg,
+      autreOblOrg,
+      paliers,
+    });
   };
 
   // ── Construction du payload Supabase ─────────────────────
@@ -600,7 +893,7 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
                           <div>
                             <p style={{ fontFamily:S.sans, fontSize:"0.72rem", fontWeight:600, color:S.brown }}>GÉRER LE PAIEMENT VIA SPOTRUCK</p>
                             <p style={{ fontFamily:S.sans, fontSize:"0.65rem", color:S.muted, marginTop:"0.15rem" }}>
-                              {droitViaSpotruck ? "Paiement sécurisé, acompte séquestré, garantie incluse" : "Paiement direct entre les parties, sans garantie Spotruck"}
+                              {droitViaSpotruck ? "Paiement sécurisé, acompte garanti, garantie incluse" : "Paiement direct entre les parties, sans garantie Spotruck"}
                             </p>
                           </div>
                           <div onClick={() => setDroitViaSpotruck(v => !v)}
@@ -615,7 +908,7 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
                             <div style={{ display:"flex", flexDirection:"column", gap:"0.4rem", marginBottom:"1rem" }}>
                               {[
                                 "Paiement sécurisé garanti",
-                                "Acompte séquestré jusqu'à l'événement",
+                                "Acompte sécurisé jusqu'à l'événement",
                                 "Garantie annulation incluse",
                                 `Frais Spotruck : 5% du droit de place`,
                               ].map(a => (
@@ -774,6 +1067,35 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
                 <SubLabel>DOCUMENTS EXIGÉS</SubLabel>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"0.25rem" }}>
                   {DOCS.map(d => <CheckItem key={d} label={d} checked={docs.includes(d)} onChange={() => toggleDoc(d)} />)}
+                </div>
+
+                {docsPersonnalises.length > 0 && (
+                  <div style={{ display:"flex", flexDirection:"column", gap:"0.25rem", marginTop:"0.4rem" }}>
+                    {docsPersonnalises.map(d => (
+                      <div key={d} style={{ display:"flex", alignItems:"center", gap:"0.6rem", padding:"0.4rem 0" }}>
+                        <div style={{ width:18, height:18, border:`2px solid ${S.terra}`, backgroundColor:S.terra, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                          <CheckCircle size={12} color="#fff" strokeWidth={2.5} />
+                        </div>
+                        <span style={{ fontFamily:S.sans, fontSize:"0.78rem", color:S.brown, flex:1 }}>{d}</span>
+                        <button onClick={() => supprimerDocPersonnalise(d)} style={{ background:"none", border:"none", cursor:"pointer", display:"flex" }}>
+                          <X size={14} color={S.muted} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginTop:"0.75rem" }}>
+                  <input
+                    value={nouveauDoc}
+                    onChange={e => setNouveauDoc(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); ajouterDocPersonnalise(); } }}
+                    placeholder="Ajouter un document personnalisé..."
+                    style={{ flex:1, border:`1px solid ${S.border}`, backgroundColor:"transparent", padding:"0.5rem 0.75rem", fontFamily:S.sans, fontSize:"0.78rem", color:S.brown, outline:"none" }}
+                  />
+                  <button onClick={ajouterDocPersonnalise} style={{ backgroundColor:"transparent", color:S.terra, border:`1px solid ${S.terra}`, padding:"0.5rem 0.85rem", fontFamily:S.sans, fontSize:"0.65rem", letterSpacing:"0.12em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.35rem", flexShrink:0 }}>
+                    <Plus size={13} strokeWidth={2} /> AJOUTER
+                  </button>
                 </div>
               </div>
 
@@ -1243,6 +1565,10 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
 
             {/* Actions modale */}
             <div style={{ marginTop:"2rem", display:"flex", gap:"0.75rem", justifyContent:"flex-end", borderTop:`1px solid ${S.border}`, paddingTop:"1.5rem" }}>
+              <button onClick={telechargerContratPDF}
+                style={{ backgroundColor:"transparent", color:S.brown, border:`1px solid ${S.border}`, padding:"0.75rem 1.5rem", fontFamily:S.sans, fontSize:"0.62rem", letterSpacing:"0.18em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.4rem" }}>
+                <Download size={13} strokeWidth={2} /> TÉLÉCHARGER LE PDF
+              </button>
               <button onClick={() => setShowContratPreview(true)}
                 style={{ backgroundColor:"transparent", color:S.terra, border:`1px solid ${S.terra}`, padding:"0.75rem 1.5rem", fontFamily:S.sans, fontSize:"0.62rem", letterSpacing:"0.18em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.4rem" }}>
                 <Eye size={13} strokeWidth={2} /> PRÉVISUALISER
@@ -1290,7 +1616,16 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
               Acompte de <strong>{acompte}%</strong> à la signature. Solde ({100-acompte}%) au {soldeDate || "[date solde]"}.
             </p>
 
-            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 3 — Obligations du Prestataire</h2>
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 3 — Documents à fournir</h2>
+            {docs.length > 0 ? (
+              <ul style={{ color:"#333", fontSize:"0.88rem", paddingLeft:"1.5rem" }}>
+                {docs.map((doc, i) => <li key={i}>{doc}</li>)}
+              </ul>
+            ) : (
+              <p style={{ color:"#333", fontSize:"0.88rem" }}>Aucun document spécifique n'est exigé.</p>
+            )}
+
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 4 — Obligations du Prestataire</h2>
             <ul style={{ color:"#333", fontSize:"0.88rem", paddingLeft:"1.5rem" }}>
               {oblFt.filter(o => o.checked).map((o, i) => (
                 <li key={i}>{o.label}{o.heures && i === 0 ? ` (${o.heures}h avant ouverture)` : ""}.</li>
@@ -1298,13 +1633,13 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
               {autreOblFt && <li>{autreOblFt}.</li>}
             </ul>
 
-            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 4 — Obligations de l'Organisateur</h2>
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 5 — Obligations de l'Organisateur</h2>
             <ul style={{ color:"#333", fontSize:"0.88rem", paddingLeft:"1.5rem" }}>
               {oblOrg.filter(o => o.checked).map((o, i) => <li key={i}>{o.label}.</li>)}
               {autreOblOrg && <li>{autreOblOrg}.</li>}
             </ul>
 
-            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 5 — Annulation</h2>
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 6 — Annulation</h2>
             <table style={{ width:"100%", borderCollapse:"collapse", fontSize:"0.85rem", color:"#333" }}>
               <thead>
                 <tr style={{ backgroundColor:"#f5f0ea" }}>
@@ -1322,7 +1657,7 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
               </tbody>
             </table>
 
-            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 6 — Résiliation</h2>
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 7 — Résiliation</h2>
             <p style={{ color:"#333", fontSize:"0.88rem" }}>
               En cas de manquement grave, chaque partie peut résilier avec un préavis de 48 heures par notification écrite.
             </p>
@@ -1341,6 +1676,10 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
             </div>
 
             <div style={{ marginTop:"2rem", textAlign:"center", display:"flex", gap:"0.75rem", justifyContent:"center" }}>
+              <button onClick={telechargerContratPDF}
+                style={{ backgroundColor:"transparent", color:"#2C1810", border:"1px solid #D4C9BC", padding:"0.75rem 1.5rem", fontFamily:"'Inter',sans-serif", fontSize:"0.62rem", letterSpacing:"0.18em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.4rem" }}>
+                <Download size={13} strokeWidth={2} /> TÉLÉCHARGER LE PDF
+              </button>
               <button onClick={() => { setContratValidated(true); setShowContratPreview(false); setShowContratBuilder(false); setToast("Contrat validé !"); setTimeout(() => setToast(null), 2000); }}
                 style={{ backgroundColor:"#2C7A4B", color:"#fff", border:"none", padding:"0.75rem 2rem", fontFamily:"'Inter',sans-serif", fontSize:"0.62rem", letterSpacing:"0.18em", cursor:"pointer" }}>
                 VALIDER CE CONTRAT

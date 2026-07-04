@@ -28,7 +28,7 @@ export default async function CandidaturesPage() {
 
   const { data: organisateur } = await supabase
     .from('organisateurs')
-    .select('nom_organisation, prenom_responsable, nom_responsable')
+    .select('nom_organisation, prenom_responsable, nom_responsable, siret, adresse')
     .eq('id', user.id)
     .single();
 
@@ -38,7 +38,12 @@ export default async function CandidaturesPage() {
 
   const { data: evenements } = await supabase
     .from('evenements')
-    .select('id, titre, ville')
+    .select(`
+      id, titre, type, ville, description, date_debut, date_fin, heure_debut, heure_fin, lieu,
+      visiteurs_attendus, nombre_trucks, modele_financier, budget_truck, droit_de_place, pourcentage_ca,
+      electricite_disponible, type_prise, amperage, surface_disponible, acces_vehicule,
+      documents_requis, note_minimum, exclusivite_cuisine, mode_candidature, date_limite_candidature
+    `)
     .eq('organisateur_id', user.id);
 
   const evenementsList = evenements || [];
@@ -108,9 +113,17 @@ export default async function CandidaturesPage() {
         evenementTitre: evt?.titre || "Événement",
         evenementVille: evt?.ville || "",
         evenementDate: "",
+        evenementContrat: evt || null,
       };
     });
   }
 
-  return <CandidaturesClient initialCandidatures={candidatures} organisateurNom={organisateurNom} />;
+  return (
+    <CandidaturesClient
+      initialCandidatures={candidatures}
+      organisateurNom={organisateurNom}
+      organisateurSiret={organisateur?.siret || ""}
+      organisateurAdresse={organisateur?.adresse || ""}
+    />
+  );
 }

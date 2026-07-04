@@ -9,6 +9,7 @@ import {
   Lightbulb, ChevronDown, X, Filter, Send, AlertTriangle,
   Paperclip, FileText, Image as ImageIcon,
 } from "lucide-react";
+import { genererContratPDF, buildContratDataFromEvenement, type EvenementForContrat } from "@/lib/contrat/genererContratPDF";
 
 // ─── Design tokens ────────────────────────────────────────────
 const S = {
@@ -38,11 +39,14 @@ export interface Candidature {
   avis: { auteur:string; note:number; texte:string }[];
   foodtruckerId: string; evenementId: string;
   evenementTitre: string; evenementVille: string; evenementDate: string;
+  evenementContrat: EvenementForContrat | null;
 }
 
 interface Props {
   initialCandidatures: Candidature[];
   organisateurNom: string;
+  organisateurSiret: string;
+  organisateurAdresse: string;
 }
 
 const STATUT_STYLE: Record<string, { color:string; bg:string }> = {
@@ -184,7 +188,7 @@ ${orgNom}`;
 }
 
 // ─── Page ─────────────────────────────────────────────────────
-export default function CandidaturesClient({ initialCandidatures, organisateurNom }: Props) {
+export default function CandidaturesClient({ initialCandidatures, organisateurNom, organisateurSiret, organisateurAdresse }: Props) {
   const router = useRouter();
   const [candidatures, setCandidatures] = useState<Candidature[]>(initialCandidatures);
   const [filtre, setFiltre] = useState<"Toutes"|"EN ATTENTE"|"RETENU"|"REFUSÉ">("Toutes");
@@ -223,6 +227,16 @@ export default function CandidaturesClient({ initialCandidatures, organisateurNo
     setRefusAttachments([]);
     setRefuserTarget(c);
   }, [organisateurNom]);
+
+  // ── Revoir le contrat généré pour l'événement de la candidature ──
+  const voirContrat = useCallback((c: Candidature) => {
+    if (!c.evenementContrat) {
+      setToast("Aucune donnée de contrat disponible pour cet événement.");
+      setTimeout(() => setToast(""), 3000);
+      return;
+    }
+    genererContratPDF(buildContratDataFromEvenement(c.evenementContrat, organisateurNom, organisateurSiret, organisateurAdresse));
+  }, [organisateurNom, organisateurSiret, organisateurAdresse]);
 
   // ── Exécuter Retenir ──────────────────────────────────────
   const executeRetenir = useCallback(async (withMessage: boolean) => {
@@ -399,6 +413,9 @@ export default function CandidaturesClient({ initialCandidatures, organisateurNo
                     <div style={{ display:"flex", gap:"0.35rem", flexWrap:"wrap", justifyContent:"flex-end" }}>
                       <button onClick={() => setModale(c)} style={{ backgroundColor:"transparent", color:S.terra, border:`1px solid ${S.terra}`, padding:"0.4rem 0.75rem", fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.12em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.3rem" }}>
                         <User size={11} strokeWidth={1.5} /> PROFIL
+                      </button>
+                      <button onClick={() => voirContrat(c)} style={{ backgroundColor:"transparent", color:S.muted, border:`1px solid ${S.border}`, padding:"0.4rem 0.75rem", fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.12em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.3rem" }}>
+                        <FileText size={11} strokeWidth={1.5} /> VOIR LE CONTRAT
                       </button>
                       {c.statut !== "RETENU" && (
                         <button onClick={() => openRetenir(c)} style={{ backgroundColor:S.green, color:"#fff", border:"none", padding:"0.4rem 0.75rem", fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.12em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.3rem" }}>

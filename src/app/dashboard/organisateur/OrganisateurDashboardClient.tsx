@@ -47,11 +47,13 @@ interface CandidatureRecente {
 }
 
 interface EvenementResume {
+  id: string;
   titre: string;
   ville: string;
   dateLabel: string;
   visiteurs: number;
   trucks: number;
+  complet: boolean;
   actif: boolean;
 }
 
@@ -64,14 +66,14 @@ interface Props {
     candidaturesNonTraitees: number;
     trucksRetenus: number;
   };
-  evenementActif: EvenementResume | null;
+  evenementsActifs: EvenementResume[];
   dernierEvenement: EvenementResume | null;
   candidaturesRecentes: CandidatureRecente[];
   nomEvenementActif: string;
 }
 
 export default function OrganisateurDashboardClient({
-  userData, stats, evenementActif, dernierEvenement, candidaturesRecentes, nomEvenementActif,
+  userData, stats, evenementsActifs, dernierEvenement, candidaturesRecentes, nomEvenementActif,
 }: Props) {
   const router = useRouter();
   const today = new Date().toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
@@ -248,33 +250,39 @@ export default function OrganisateurDashboardClient({
           )}
 
           {/* Événements */}
-          {(evenementActif || dernierEvenement) && (
-            <div style={{ marginTop:"2rem", display:"grid", gridTemplateColumns:"1fr 1fr", gap:"2px" }}>
-              {evenementActif && (
-                <div style={{ backgroundColor:S.card, padding:"1.25rem 1.5rem" }}>
-                  <p style={{ fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.2em", color:S.muted, marginBottom:"0.4rem" }}>ÉVÉNEMENT ACTIF</p>
-                  <p style={{ fontFamily:S.serif, fontSize:"1rem", fontWeight:700, color:S.brown, marginBottom:"0.25rem" }}>{evenementActif.titre}</p>
-                  <p style={{ fontFamily:S.sans, fontSize:"0.68rem", fontWeight:300, color:S.muted }}>
-                    {evenementActif.dateLabel} · {evenementActif.ville} · {evenementActif.visiteurs.toLocaleString("fr-FR")} visiteurs
-                  </p>
-                  <div style={{ display:"flex", alignItems:"center", gap:"0.35rem", marginTop:"0.5rem" }}>
-                    <div style={{ width:6, height:6, borderRadius:"50%", backgroundColor:S.green }} />
-                    <span style={{ fontFamily:S.sans, fontSize:"0.6rem", color:S.green, letterSpacing:"0.1em" }}>EN COURS</span>
+          {(evenementsActifs.length > 0 || dernierEvenement) && (
+            <div style={{ marginTop:"2rem" }}>
+              <p style={{ fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.2em", color:S.muted, marginBottom:"0.6rem" }}>
+                VOS ÉVÉNEMENTS PUBLIÉS ({evenementsActifs.length})
+              </p>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"2px" }}>
+                {evenementsActifs.map(evt => (
+                  <div key={evt.id} style={{ backgroundColor:S.card, padding:"1.25rem 1.5rem" }}>
+                    <p style={{ fontFamily:S.serif, fontSize:"1rem", fontWeight:700, color:S.brown, marginBottom:"0.25rem" }}>{evt.titre}</p>
+                    <p style={{ fontFamily:S.sans, fontSize:"0.68rem", fontWeight:300, color:S.muted }}>
+                      {evt.dateLabel} · {evt.ville} · {evt.visiteurs.toLocaleString("fr-FR")} visiteurs
+                    </p>
+                    <div style={{ display:"flex", alignItems:"center", gap:"0.35rem", marginTop:"0.5rem" }}>
+                      <div style={{ width:6, height:6, borderRadius:"50%", backgroundColor: evt.complet ? S.amber : S.green }} />
+                      <span style={{ fontFamily:S.sans, fontSize:"0.6rem", color: evt.complet ? S.amber : S.green, letterSpacing:"0.1em" }}>
+                        {evt.complet ? "COMPLET" : "EN COURS"}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              )}
-              {dernierEvenement && (
-                <div style={{ backgroundColor:S.card, padding:"1.25rem 1.5rem" }}>
-                  <p style={{ fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.2em", color:S.muted, marginBottom:"0.4rem" }}>DERNIER ÉVÉNEMENT</p>
-                  <p style={{ fontFamily:S.serif, fontSize:"1rem", fontWeight:700, color:S.brown, marginBottom:"0.25rem" }}>{dernierEvenement.titre}</p>
-                  <p style={{ fontFamily:S.sans, fontSize:"0.68rem", fontWeight:300, color:S.muted }}>
-                    {dernierEvenement.dateLabel} · {dernierEvenement.trucks} truck{dernierEvenement.trucks > 1 ? "s" : ""} · Terminé
-                  </p>
-                  <div style={{ display:"flex", alignItems:"center", gap:"0.35rem", marginTop:"0.5rem" }}>
-                    <CheckCircle size={12} strokeWidth={2} color={S.muted} /><span style={{ fontFamily:S.sans, fontSize:"0.6rem", color:S.muted }}>Terminé</span>
+                ))}
+                {dernierEvenement && (
+                  <div style={{ backgroundColor:S.card, padding:"1.25rem 1.5rem" }}>
+                    <p style={{ fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.2em", color:S.muted, marginBottom:"0.4rem" }}>DERNIER ÉVÉNEMENT</p>
+                    <p style={{ fontFamily:S.serif, fontSize:"1rem", fontWeight:700, color:S.brown, marginBottom:"0.25rem" }}>{dernierEvenement.titre}</p>
+                    <p style={{ fontFamily:S.sans, fontSize:"0.68rem", fontWeight:300, color:S.muted }}>
+                      {dernierEvenement.dateLabel} · {dernierEvenement.trucks} truck{dernierEvenement.trucks > 1 ? "s" : ""} · Terminé
+                    </p>
+                    <div style={{ display:"flex", alignItems:"center", gap:"0.35rem", marginTop:"0.5rem" }}>
+                      <CheckCircle size={12} strokeWidth={2} color={S.muted} /><span style={{ fontFamily:S.sans, fontSize:"0.6rem", color:S.muted }}>Terminé</span>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
         </div>

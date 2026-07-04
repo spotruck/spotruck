@@ -56,22 +56,27 @@ export default async function OrganisateurDashboardPage() {
   const candidaturesNonTraitees = candidatures.filter(c => c.statut === 'en_attente').length;
   const trucksRetenus = candidatures.filter(c => c.statut === 'acceptee').length;
 
-  const evtActifRaw = evenementsActifsList.sort((a, b) => a.date_debut.localeCompare(b.date_debut))[0];
+  const evenementsActifsSorted = [...evenementsActifsList].sort((a, b) => a.date_debut.localeCompare(b.date_debut));
+  const evtActifRaw = evenementsActifsSorted[0];
   const evtTermineRaw = evenementsList.find(e => e.statut === 'termine');
 
   function toResume(e: typeof evtActifRaw | typeof evtTermineRaw, actif: boolean) {
     if (!e) return null;
     return {
+      id: e.id,
       titre: e.titre,
       ville: e.ville || "",
       dateLabel: new Date(e.date_debut).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
       visiteurs: e.visiteurs_attendus || 0,
       trucks: e.nombre_trucks || 1,
+      complet: e.statut === 'complet',
       actif,
     };
   }
 
-  const evenementActif = toResume(evtActifRaw, true);
+  const evenementsActifsResume = evenementsActifsSorted
+    .map(e => toResume(e, true))
+    .filter((e): e is NonNullable<typeof e> => e !== null);
   const dernierEvenement = toResume(evtTermineRaw, false);
 
   let candidaturesRecentes: {
@@ -117,7 +122,7 @@ export default async function OrganisateurDashboardPage() {
         candidaturesNonTraitees,
         trucksRetenus,
       }}
-      evenementActif={evenementActif}
+      evenementsActifs={evenementsActifsResume}
       dernierEvenement={dernierEvenement}
       candidaturesRecentes={candidaturesRecentes}
       nomEvenementActif={evtActifRaw ? `${evtActifRaw.titre} — ${evtActifRaw.ville || ""}, ${new Date(evtActifRaw.date_debut).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}` : ""}

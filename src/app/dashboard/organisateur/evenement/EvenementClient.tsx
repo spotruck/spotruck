@@ -8,6 +8,7 @@ import {
   ChevronRight, ChevronLeft, CheckCircle, Zap, Plus, Minus,
   Upload, FileText, X, AlertTriangle, Eye, Download,
 } from "lucide-react";
+import { genererContratPDF, DEFAULT_PALIERS, OBL_FT_DEFAULT, OBL_ORG_DEFAULT } from "@/lib/contrat/genererContratPDF";
 
 // ─── Design tokens ────────────────────────────────────────────
 const S = {
@@ -136,346 +137,71 @@ const MODE_CAND_DB: Record<string, "spotruck" | "email" | "lien_externe"> = {
   "Via lien externe": "lien_externe",
 };
 
-// ─── Paliers annulation par défaut ────────────────────────────
-const DEFAULT_PALIERS = [
-  { delai:"> 15 jours", remboursement:100 },
-  { delai:"7 à 15 jours", remboursement:50 },
-  { delai:"< 7 jours", remboursement:0 },
-];
-
-// ─── Obligations par défaut ───────────────────────────────────
-const OBL_FT_DEFAULT = [
-  { label:"Arriver avant l'ouverture", checked:true, heures:"2" },
-  { label:"Respecter les normes d'hygiène en vigueur", checked:true, heures:"" },
-  { label:"Assurer la propreté de son emplacement", checked:true, heures:"" },
-  { label:"Rester jusqu'à la fin de l'événement", checked:true, heures:"" },
-  { label:"Porter une tenue aux couleurs de l'événement", checked:false, heures:"" },
-];
-const OBL_ORG_DEFAULT = [
-  { label:"Fournir l'emplacement convenu", checked:true },
-  { label:"Assurer l'accès électrique (si applicable)", checked:true },
-  { label:"Informer le truck des règles du site", checked:true },
-  { label:"Payer dans les délais convenus", checked:true },
-];
-
-function fmtDateFR(iso: string) {
-  if (!iso) return "—";
-  const [y, m, d] = iso.split("-");
-  if (!y || !m || !d) return iso;
-  return `${d}/${m}/${y}`;
+// ─── Mapping inverse (édition d'un événement existant) ────────
+const DB_TO_MODELE_FIN: Record<string, string> = {
+  droit_de_place: "droit",
+  privatisation: "privatisation",
+  mixte: "mixte",
+  pourcentage_ca: "pct_ca",
+};
+const DB_TO_MODE_CAND: Record<string, string> = {
+  spotruck: CAND_MODES[0],
+  email: "Par email",
+  lien_externe: "Via lien externe",
+};
+function visiteursIntToFourchette(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "";
+  if (n < 500) return "Moins de 500";
+  if (n < 1000) return "500-1000";
+  if (n < 5000) return "1000-5000";
+  if (n < 10000) return "5000-10000";
+  return "Plus de 10000";
 }
 
-interface ContratPDFData {
-  organisateurNom: string;
-  siretOrga: string;
-  adresseOrga: string;
+// ─── Ligne événement telle que stockée en base (édition) ──────
+export interface EvenementDBRow {
+  id: string;
   titre: string;
-  typeEvt: string;
-  description: string;
-  dateDebut: string;
-  dateFin: string;
-  heureDebut: string;
-  heureFin: string;
+  type: string;
+  description: string | null;
+  date_debut: string;
+  date_fin: string | null;
+  heure_debut: string | null;
+  heure_fin: string | null;
   lieu: string;
-  visiteurs: string;
-  nbTrucks: number;
-  truckDetails: string[];
-  surface: string;
-  elec: boolean;
-  typeElec: string;
-  amperage: string;
-  acces: boolean;
-  modeleLabel: string;
-  modeleMontant: string;
-  acompte: number;
-  soldeDate: string;
-  precisions: string;
-  docs: string[];
-  noteMin: number;
-  exclu: boolean;
-  excluType: string;
-  dateLimite: string;
-  modeCandidature: string;
-  oblFt: { label: string; checked: boolean; heures: string }[];
-  autreOblFt: string;
-  oblOrg: { label: string; checked: boolean }[];
-  autreOblOrg: string;
-  paliers: { delai: string; remboursement: number }[];
-}
-
-// ─── Génération du contrat PDF (modèle inspiré du cahier des charges
-//     des Fêtes de Bayonne — convention d'occupation pour foodtrucks) ──
-async function genererContratPDF(d: ContratPDFData) {
-  const { default: jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-
-  const marginX = 15;
-  const pageW = 210;
-  const contentW = pageW - marginX * 2;
-  const pageBottom = 280;
-  let y = 20;
-
-  const setBrown = () => doc.setTextColor(44, 24, 16);
-  const setMuted = () => doc.setTextColor(100, 90, 80);
-  const setTerra = () => doc.setTextColor(196, 98, 43);
-
-  const checkBreak = (need: number) => {
-    if (y + need > pageBottom) {
-      doc.addPage();
-      y = 20;
-    }
-  };
-
-  const h1 = (title: string) => {
-    checkBreak(16);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    setBrown();
-    doc.text(title, marginX, y);
-    y += 3;
-    doc.setDrawColor(212, 201, 188);
-    doc.line(marginX, y, pageW - marginX, y);
-    y += 7;
-  };
-
-  const h2 = (title: string) => {
-    checkBreak(10);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9.5);
-    setTerra();
-    doc.text(title, marginX, y);
-    y += 5.5;
-  };
-
-  const paragraph = (text: string, opts?: { bold?: boolean; size?: number }) => {
-    doc.setFont("helvetica", opts?.bold ? "bold" : "normal");
-    doc.setFontSize(opts?.size ?? 9.5);
-    setMuted();
-    const lines = doc.splitTextToSize(text, contentW);
-    lines.forEach((line: string) => {
-      checkBreak(6);
-      doc.text(line, marginX, y);
-      y += 5.5;
-    });
-    y += 2;
-  };
-
-  const bullet = (text: string) => {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    setMuted();
-    const lines = doc.splitTextToSize(text, contentW - 6);
-    checkBreak(lines.length * 5.5);
-    doc.text("•", marginX, y);
-    doc.text(lines, marginX + 5, y);
-    y += lines.length * 5.5 + 1;
-  };
-
-  const ref = `CT-${(d.titre || "EVT").replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase()}-${d.dateDebut.replace(/-/g, "") || "XXXX"}`;
-
-  // ── En-tête ──
-  doc.setFillColor(44, 24, 16);
-  doc.rect(0, 0, pageW, 38, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(20);
-  doc.setTextColor(255, 255, 255);
-  doc.text("SPOTRUCK", marginX, 17);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  setTerra();
-  doc.text("MARKETPLACE FOODTRUCK & ÉVÉNEMENTS", marginX, 25);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(255, 255, 255);
-  doc.text("CONTRAT DE PRESTATION", pageW - marginX, 17, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text(`Réf. ${ref}`, pageW - marginX, 24, { align: "right" });
-  doc.text(`Généré le ${fmtDateFR(new Date().toISOString().slice(0, 10))}`, pageW - marginX, 30, { align: "right" });
-
-  y = 48;
-  doc.setFont("helvetica", "italic");
-  doc.setFontSize(10);
-  setBrown();
-  doc.text(`Convention d'occupation temporaire — "${d.titre || "Événement à préciser"}"`, pageW / 2, y, { align: "center" });
-  y += 10;
-
-  // ── Préambule / Parties ──
-  h1("ENTRE LES SOUSSIGNÉS");
-  paragraph(
-    `${d.organisateurNom}${d.siretOrga ? `, SIRET ${d.siretOrga}` : ""}${d.adresseOrga ? `, domicilié(e) au ${d.adresseOrga}` : ""}, ci-après dénommé « l'Organisateur »,`
-  );
-  paragraph(`ET`, { bold: true, size: 9 });
-  paragraph(`Le prestataire de restauration mobile (foodtruck) retenu par l'Organisateur à l'issue de la consultation décrite ci-après, ci-après dénommé « le Prestataire ».`);
-  y += 2;
-  paragraph(`Il est convenu ce qui suit :`, { bold: true });
-
-  // ── Article 1 — Objet de la consultation ──
-  h1("ARTICLE 1 — OBJET DE LA CONSULTATION");
-  paragraph(
-    `L'Organisateur organise, sur la base du présent cahier des charges, une consultation en vue de sélectionner un ou plusieurs prestataires de restauration mobile (foodtrucks) pour assurer une prestation de restauration à l'occasion de la manifestation intitulée "${d.titre || "[titre]"}"${d.typeEvt ? ` (${d.typeEvt})` : ""}.`
-  );
-  if (d.description) paragraph(d.description);
-  if (d.precisions) paragraph(`Précisions complémentaires : ${d.precisions}`);
-  paragraph(`Le présent document, une fois signé par le Prestataire retenu à l'issue de cette consultation, vaut convention d'occupation temporaire et engage les deux parties dans les conditions définies ci-après.`);
-
-  // ── Article 2 — Identification des espaces / emplacements ──
-  h1("ARTICLE 2 — IDENTIFICATION DES ESPACES ET EMPLACEMENTS");
-  paragraph(`La manifestation se tient à l'adresse suivante : ${d.lieu || "[lieu à préciser]"}.`);
-  paragraph(`Nombre d'emplacements proposés à la consultation : ${d.nbTrucks} emplacement(s)${d.surface ? `, d'une surface d'environ ${d.surface} m² chacun` : ""}.`);
-  const detailsRenseignes = d.truckDetails.filter(t => t.trim());
-  if (detailsRenseignes.length > 0) {
-    paragraph("Type de cuisine souhaité par emplacement :");
-    d.truckDetails.forEach((t, i) => { if (t.trim()) bullet(`Emplacement n°${i + 1} : ${t.trim()}`); });
-  }
-  paragraph("L'emplacement attribué au Prestataire est strictement réservé à l'activité de restauration mobile objet du présent contrat ; il ne peut être cédé, sous-loué ou modifié sans accord préalable et écrit de l'Organisateur.");
-
-  // ── Article 3 — Durée de l'autorisation ──
-  h1("ARTICLE 3 — DURÉE DE L'AUTORISATION");
-  const periode = d.dateFin && d.dateFin !== d.dateDebut
-    ? `du ${fmtDateFR(d.dateDebut)} au ${fmtDateFR(d.dateFin)}`
-    : `le ${fmtDateFR(d.dateDebut)}`;
-  paragraph(`La présente autorisation d'occupation est consentie ${periode}${d.heureDebut ? `, de ${d.heureDebut}${d.heureFin ? ` à ${d.heureFin}` : ""}` : ""}. Elle est strictement limitée à cette période et ne pourra en aucun cas donner lieu à une reconduction tacite.`);
-  if (d.visiteurs) paragraph(`Fréquentation estimée : ${d.visiteurs} visiteurs.`);
-
-  // ── Article 4 — Modalités d'exploitation ──
-  h1("ARTICLE 4 — MODALITÉS D'EXPLOITATION");
-  h2("Horaires");
-  paragraph(`Le Prestataire exerce son activité durant les horaires d'ouverture au public de la manifestation, soit de ${d.heureDebut || "[heure de début]"} à ${d.heureFin || "la fin de la manifestation"}.`);
-  h2("Installation");
-  const oblInstallation = d.oblFt.find(o => o.label === "Arriver avant l'ouverture" && o.checked);
-  paragraph(`L'installation du foodtruck sur son emplacement doit être achevée${oblInstallation?.heures ? ` au moins ${oblInstallation.heures} heure(s) avant l'ouverture au public` : " avant l'ouverture au public"}, selon les modalités communiquées par l'Organisateur.`);
-  h2("Démontage");
-  paragraph("Le démontage et l'évacuation du matériel et des déchets ne peuvent intervenir qu'après la fermeture au public de la manifestation, dans les délais fixés par l'Organisateur. Le Prestataire s'engage à rester sur place jusqu'à la fin de la manifestation, sauf autorisation contraire.");
-  h2("Approvisionnement");
-  paragraph(`Les opérations d'approvisionnement et de livraison s'effectuent en dehors des horaires d'ouverture au public dans la mesure du possible${d.acces ? ", l'accès des véhicules utilitaires étant autorisé sur le site aux horaires convenus avec l'Organisateur" : ", l'accès des véhicules étant limité sur le site et devant être organisé au préalable avec l'Organisateur"}.`);
-
-  // ── Article 5 — Prescriptions techniques et sanitaires ──
-  h1("ARTICLE 5 — PRESCRIPTIONS TECHNIQUES ET SANITAIRES");
-  h2("Eau");
-  paragraph("Sauf disposition contraire expressément prévue par l'Organisateur, le Prestataire doit disposer de sa propre autonomie en eau potable et assurer l'évacuation de ses eaux usées dans le respect de la réglementation en vigueur.");
-  h2("Électricité");
-  if (d.elec) {
-    paragraph(`L'Organisateur met à disposition du Prestataire une alimentation électrique de type ${d.typeElec}${d.amperage ? `, d'un ampérage de ${d.amperage}A` : ""}. Le Prestataire demeure responsable de la conformité de son propre matériel de raccordement.`);
-  } else {
-    paragraph("Aucune alimentation électrique n'est fournie par l'Organisateur. Le Prestataire doit prévoir son propre dispositif d'alimentation autonome (groupe électrogène ou équivalent), dans le respect des normes de sécurité en vigueur.");
-  }
-  h2("Hygiène");
-  paragraph("Le Prestataire s'engage à respecter l'intégralité de la réglementation applicable en matière d'hygiène alimentaire (méthode HACCP) et à être en mesure de présenter, à première demande, tout document justificatif attestant de sa conformité.");
-  h2("Déchets");
-  paragraph("Le Prestataire assure le tri, la collecte et l'évacuation de ses propres déchets, dans le respect des consignes de tri de l'Organisateur, et s'engage à restituer son emplacement dans un parfait état de propreté à l'issue de la manifestation.");
-
-  // ── Article 6 — Redevance d'occupation ──
-  h1("ARTICLE 6 — REDEVANCE D'OCCUPATION");
-  paragraph(`Modèle de redevance retenu : ${d.modeleLabel || "—"}.`);
-  paragraph(`Montant convenu : ${d.modeleMontant || "—"}.`);
-  paragraph(`Un acompte de ${d.acompte}% est exigible à la signature du présent contrat. Le solde (${100 - d.acompte}%) sera versé au plus tard le ${fmtDateFR(d.soldeDate)}.`);
-
-  // ── Article 7 — Critères de sélection des candidatures ──
-  h1("ARTICLE 7 — CRITÈRES DE SÉLECTION DES CANDIDATURES");
-  paragraph("Les candidatures des prestataires sont examinées par l'Organisateur au regard des critères suivants :");
-  bullet(`Note minimale exigée du Prestataire sur la plateforme Spotruck : ${d.noteMin}★`);
-  if (d.exclu) bullet(`Exclusivité accordée sur le type de cuisine suivant : ${d.excluType || "à préciser"}`);
-  if (d.dateLimite) bullet(`Date limite de dépôt des candidatures : ${fmtDateFR(d.dateLimite)}`);
-  bullet(`Mode de dépôt des candidatures : ${d.modeCandidature}`);
-
-  // ── Article 8 — Documents à fournir ──
-  h1("ARTICLE 8 — DOCUMENTS À FOURNIR PAR LE PRESTATAIRE");
-  if (d.docs.length > 0) {
-    paragraph("Préalablement à la manifestation, le Prestataire s'engage à transmettre à l'Organisateur les documents suivants :");
-    d.docs.forEach(doc_ => bullet(doc_));
-  } else {
-    paragraph("Aucun document spécifique n'est exigé pour cette manifestation.");
-  }
-
-  // ── Article 9 — Obligations et sanctions ──
-  h1("ARTICLE 9 — OBLIGATIONS ET SANCTIONS");
-  h2("Obligations du Prestataire");
-  const oblFtChecked = d.oblFt.filter(o => o.checked);
-  oblFtChecked.forEach((o, i) => bullet(`${o.label}${o.heures && i === 0 ? ` (${o.heures}h avant l'ouverture)` : ""}.`));
-  if (d.autreOblFt) bullet(`${d.autreOblFt}.`);
-  h2("Obligations de l'Organisateur");
-  d.oblOrg.filter(o => o.checked).forEach(o => bullet(`${o.label}.`));
-  if (d.autreOblOrg) bullet(`${d.autreOblOrg}.`);
-  h2("Sanctions en cas d'annulation");
-  paragraph("En cas d'annulation par l'une des parties, le remboursement des sommes versées s'effectue selon le barème suivant :");
-  checkBreak(10 + d.paliers.length * 7);
-  doc.setFillColor(237, 232, 223);
-  doc.rect(marginX, y, contentW, 8, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.setTextColor(140, 123, 110);
-  doc.text("DÉLAI AVANT L'ÉVÉNEMENT", marginX + 3, y + 5.5);
-  doc.text("REMBOURSEMENT", marginX + contentW / 2 + 3, y + 5.5);
-  y += 8;
-  d.paliers.forEach((p, i) => {
-    checkBreak(8);
-    if (i % 2 === 0) {
-      doc.setFillColor(249, 246, 241);
-      doc.rect(marginX, y, contentW, 7.5, "F");
-    }
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    setBrown();
-    doc.text(p.delai, marginX + 3, y + 5.2);
-    doc.text(`${p.remboursement}%`, marginX + contentW / 2 + 3, y + 5.2);
-    y += 7.5;
-  });
-  y += 4;
-  h2("Manquement et résiliation");
-  paragraph("En cas de manquement grave de l'une des parties à ses obligations contractuelles ou aux présentes prescriptions, l'autre partie peut résilier le présent contrat avec un préavis de 48 heures, notifié par écrit. Les sommes versées restent acquises selon le barème défini ci-dessus. Le présent contrat est soumis au droit français ; en cas de différend, les parties s'efforceront de trouver une solution amiable avant toute saisine des juridictions compétentes.");
-
-  // ── Signatures ──
-  checkBreak(55);
-  y += 4;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9.5);
-  setMuted();
-  doc.text(`Fait à ${d.lieu ? d.lieu.split(",").pop()?.trim() || "__________" : "__________"}, le ${fmtDateFR(new Date().toISOString().slice(0, 10))}, en deux exemplaires originaux.`, marginX, y);
-  y += 14;
-
-  const sigColW = contentW / 2 - 5;
-  [
-    { label: "L'ORGANISATEUR", name: d.organisateurNom },
-    { label: "LE PRESTATAIRE (FOODTRUCK)", name: "___________________________" },
-  ].forEach((s, i) => {
-    const x = marginX + i * (sigColW + 10);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    setBrown();
-    doc.text(s.label, x, y);
-    doc.setDrawColor(44, 24, 16);
-    doc.line(x, y + 22, x + sigColW, y + 22);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
-    setMuted();
-    doc.text(`${s.name} — Date : ___________`, x, y + 27);
-  });
-
-  // ── Pied de page (toutes les pages) ──
-  const nbPages = doc.getNumberOfPages();
-  for (let p = 1; p <= nbPages; p++) {
-    doc.setPage(p);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    doc.setTextColor(140, 123, 110);
-    doc.text("Spotruck SAS — Contrat généré via la plateforme Spotruck — document contractuel à valeur probante après signature", pageW / 2, 290, { align: "center" });
-    doc.text(`Page ${p}/${nbPages}`, pageW - marginX, 290, { align: "right" });
-  }
-
-  doc.save(`${ref}.pdf`);
+  visiteurs_attendus: number | null;
+  nombre_trucks: number | null;
+  modele_financier: string | null;
+  budget_truck: number | null;
+  droit_de_place: number | null;
+  pourcentage_ca: number | null;
+  electricite_disponible: boolean | null;
+  type_prise: string | null;
+  amperage: number | null;
+  surface_disponible: number | null;
+  acces_vehicule: boolean | null;
+  documents_requis: string[] | null;
+  note_minimum: number | null;
+  exclusivite_cuisine: boolean | null;
+  instructions_candidature: string | null;
+  mode_candidature: string | null;
+  contact_candidature: string | null;
+  date_limite_candidature: string | null;
+  statut: string;
 }
 
 interface Props {
   organisateurId: string;
   organisateurNom: string;
+  evenementId?: string;
+  initialData?: EvenementDBRow | null;
 }
 
 // ─── Page principale ──────────────────────────────────────────
-export default function EvenementClient({ organisateurId, organisateurNom }: Props) {
+export default function EvenementClient({ organisateurId, organisateurNom, evenementId, initialData }: Props) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const editing = !!evenementId;
 
   const [step,  setStep]  = useState(1);
   const [toast, setToast] = useState<string | null>(null);
@@ -485,57 +211,79 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
   const [publishError, setPublishError] = useState<string | null>(null);
 
   // ── Étape 1 ──────────────────────────────────────────────
-  const [titre,       setTitre]       = useState("");
-  const [typeEvt,     setTypeEvt]     = useState("");
-  const [description, setDescription] = useState("");
-  const [dateDebut,   setDateDebut]   = useState("");
-  const [dateFin,     setDateFin]     = useState("");
-  const [heureDebut,  setHeureDebut]  = useState("");
-  const [heureFin,    setHeureFin]    = useState("");
-  const [lieu,        setLieu]        = useState("");
-  const [visiteurs,   setVisiteurs]   = useState("");
+  const [titre,       setTitre]       = useState(initialData?.titre ?? "");
+  const [typeEvt,     setTypeEvt]     = useState(initialData?.type ?? "");
+  const [description, setDescription] = useState(initialData?.description ?? "");
+  const [dateDebut,   setDateDebut]   = useState(initialData?.date_debut ?? "");
+  const [dateFin,     setDateFin]     = useState(initialData?.date_fin ?? "");
+  const [heureDebut,  setHeureDebut]  = useState(initialData?.heure_debut?.slice(0, 5) ?? "");
+  const [heureFin,    setHeureFin]    = useState(initialData?.heure_fin?.slice(0, 5) ?? "");
+  const [lieu,        setLieu]        = useState(initialData?.lieu ?? "");
+  const [visiteurs,   setVisiteurs]   = useState(visiteursIntToFourchette(initialData?.visiteurs_attendus));
 
   // ── Étape 2 ──────────────────────────────────────────────
-  const [nbTrucksCount, setNbTrucksCount] = useState(2);
-  const [truckDetails,  setTruckDetails]  = useState<string[]>(["", ""]);
+  const [nbTrucksCount, setNbTrucksCount] = useState(initialData?.nombre_trucks ?? 2);
+  const [truckDetails,  setTruckDetails]  = useState<string[]>(Array(initialData?.nombre_trucks ?? 2).fill(""));
   const [tranches,      setTranches]      = useState<string[]>([]);
   const [recherche,     setRecherche]     = useState("");
 
   // Modèle financier
-  const [modele,          setModele]          = useState("droit");
+  const [modele, setModele] = useState(
+    initialData?.modele_financier ? (DB_TO_MODELE_FIN[initialData.modele_financier] ?? "droit") : "droit"
+  );
   // Droit de place
-  const [droitMontant,    setDroitMontant]    = useState("");
+  const [droitMontant, setDroitMontant] = useState(
+    initialData?.modele_financier === "droit_de_place"
+      ? String(initialData.droit_de_place ?? initialData.budget_truck ?? "")
+      : ""
+  );
   const [droitViaSpotruck,setDroitViaSpotruck]= useState(false);
   // Privatisation
   const [privatType,   setPrivatType]   = useState<"fixe"|"fourchette">("fixe");
-  const [privatFixe,   setPrivatFixe]   = useState("");
+  const [privatFixe,   setPrivatFixe]   = useState(
+    initialData?.modele_financier === "privatisation" ? String(initialData.budget_truck ?? "") : ""
+  );
   const [privatMin,    setPrivatMin]    = useState("");
   const [privatMax,    setPrivatMax]    = useState("");
   // Mixte
-  const [mixteDroit,   setMixteDroit]   = useState("");
-  const [mixtePct,     setMixtePct]     = useState(10);
+  const [mixteDroit,   setMixteDroit]   = useState(
+    initialData?.modele_financier === "mixte" ? String(initialData.droit_de_place ?? "") : ""
+  );
+  const [mixtePct,     setMixtePct]     = useState(
+    initialData?.modele_financier === "mixte" ? Number(initialData.pourcentage_ca ?? 10) : 10
+  );
   // % CA uniquement
-  const [pctCaSeul,    setPctCaSeul]    = useState(10);
+  const [pctCaSeul,    setPctCaSeul]    = useState(
+    initialData?.modele_financier === "pourcentage_ca" ? Number(initialData.pourcentage_ca ?? 10) : 10
+  );
 
   // Logistique
-  const [elec,      setElec]      = useState(false);
-  const [typeElec,  setTypeElec]  = useState("Monophasé");
-  const [amperage,  setAmperage]  = useState("");
-  const [surface,   setSurface]   = useState("");
-  const [acces,     setAcces]     = useState(true);
+  const [elec,      setElec]      = useState(initialData?.electricite_disponible ?? false);
+  const [typeElec,  setTypeElec]  = useState(initialData?.type_prise ?? "Monophasé");
+  const [amperage,  setAmperage]  = useState(initialData?.amperage != null ? String(initialData.amperage) : "");
+  const [surface,   setSurface]   = useState(initialData?.surface_disponible != null ? String(initialData.surface_disponible) : "");
+  const [acces,     setAcces]     = useState(initialData?.acces_vehicule ?? true);
 
   // ── Étape 3 ──────────────────────────────────────────────
-  const [docs,             setDocs]             = useState<string[]>([]);
-  const [docsPersonnalises,setDocsPersonnalises] = useState<string[]>([]);
+  const [docs,             setDocs]             = useState<string[]>(initialData?.documents_requis ?? []);
+  const [docsPersonnalises,setDocsPersonnalises] = useState<string[]>(
+    (initialData?.documents_requis ?? []).filter(d => !DOCS.includes(d))
+  );
   const [nouveauDoc,       setNouveauDoc]       = useState("");
-  const [noteMin,      setNoteMin]      = useState(3);
-  const [exclu,        setExclu]        = useState(false);
+  const [noteMin,      setNoteMin]      = useState(Number(initialData?.note_minimum ?? 3));
+  const [exclu,        setExclu]        = useState(initialData?.exclusivite_cuisine ?? false);
   const [excluType,    setExcluType]    = useState("");
-  const [dateLimite,   setDateLimite]   = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [modesCand,    setModesCand]    = useState(CAND_MODES[0]);
-  const [emailCand,    setEmailCand]    = useState("");
-  const [urlCand,      setUrlCand]      = useState("");
+  const [dateLimite,   setDateLimite]   = useState(initialData?.date_limite_candidature ?? "");
+  const [instructions, setInstructions] = useState(initialData?.instructions_candidature ?? "");
+  const [modesCand,    setModesCand]    = useState(
+    initialData?.mode_candidature ? (DB_TO_MODE_CAND[initialData.mode_candidature] ?? CAND_MODES[0]) : CAND_MODES[0]
+  );
+  const [emailCand,    setEmailCand]    = useState(
+    initialData?.mode_candidature === "email" ? (initialData.contact_candidature ?? "") : ""
+  );
+  const [urlCand,      setUrlCand]      = useState(
+    initialData?.mode_candidature === "lien_externe" ? (initialData.contact_candidature ?? "") : ""
+  );
 
   // Contrat
   const [contratMode,   setContratMode]   = useState<"upload"|"spotruck"|"aucun"|"">("");
@@ -720,15 +468,17 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
     setPublishing(true);
     setPublishError(null);
     const supabase = createClient();
-    const { error } = await supabase.from("evenements").insert(buildPayload("publie"));
+    const { error } = evenementId
+      ? await supabase.from("evenements").update(buildPayload("publie")).eq("id", evenementId)
+      : await supabase.from("evenements").insert(buildPayload("publie"));
     setPublishing(false);
     if (error) {
       setPublishError(error.message || "Une erreur est survenue lors de la publication.");
       return;
     }
-    setToast("Événement publié ! Les trucks peuvent maintenant postuler.");
-    setTimeout(() => router.push("/dashboard/organisateur/candidatures"), 1800);
-  }, [titre, typeEvt, dateDebut, lieu, buildPayload, router]);
+    setToast(evenementId ? "Événement mis à jour !" : "Événement publié ! Les trucks peuvent maintenant postuler.");
+    setTimeout(() => router.push(evenementId ? "/dashboard/organisateur/evenements" : "/dashboard/organisateur/candidatures"), 1800);
+  }, [titre, typeEvt, dateDebut, lieu, buildPayload, router, evenementId]);
 
   const sauvegarder = useCallback(async () => {
     if (!titre.trim() || !typeEvt || !dateDebut || !lieu.trim()) {
@@ -738,7 +488,9 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
       return;
     }
     const supabase = createClient();
-    const { error } = await supabase.from("evenements").insert(buildPayload("brouillon"));
+    const { error } = evenementId
+      ? await supabase.from("evenements").update(buildPayload("brouillon")).eq("id", evenementId)
+      : await supabase.from("evenements").insert(buildPayload("brouillon"));
     if (error) {
       setToast("Impossible de sauvegarder le brouillon en ligne — sauvegardé localement.");
       saveLS("spotruck_org_brouillon", { titre, typeEvt, description, dateDebut, lieu, statut:"BROUILLON" });
@@ -746,7 +498,7 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
       setToast("Brouillon sauvegardé.");
     }
     setTimeout(() => setToast(null), 2500);
-  }, [titre, typeEvt, description, dateDebut, lieu, buildPayload]);
+  }, [titre, typeEvt, description, dateDebut, lieu, buildPayload, evenementId]);
 
   // ── Validation étape 1 ────────────────────────────────────
   const validerEtape1 = () => {
@@ -805,13 +557,13 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
 
   return (
     <main style={{ minHeight:"100vh", backgroundColor:S.cream, color:S.brown, display:"grid", gridTemplateColumns:"260px 1fr" }}>
-      <OrganisateurSidebar active="/dashboard/organisateur/evenement" />
+      <OrganisateurSidebar active="/dashboard/organisateur/evenements" />
 
       <div style={{ padding:"3rem", maxWidth:920, minWidth:0 }}>
 
         <div style={{ marginBottom:"2rem" }}>
           <p style={{ fontFamily:S.sans, fontSize:"0.62rem", letterSpacing:"0.2em", color:S.muted, marginBottom:"0.5rem" }}>DASHBOARD — ORGANISATEUR</p>
-          <h1 style={{ fontFamily:S.serif, fontSize:"2rem", fontWeight:800, lineHeight:1.1 }}>Publier un événement</h1>
+          <h1 style={{ fontFamily:S.serif, fontSize:"2rem", fontWeight:800, lineHeight:1.1 }}>{editing ? "Modifier l'événement" : "Publier un événement"}</h1>
         </div>
 
         <ProgressBar />
@@ -1486,7 +1238,9 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
                   SAUVEGARDER EN BROUILLON
                 </button>
                 <button onClick={publier} disabled={publishing} style={{ backgroundColor: publishing ? S.muted : S.terra, color:"#fff", border:"none", padding:"0.875rem 2rem", fontFamily:S.sans, fontSize:"0.65rem", letterSpacing:"0.2em", cursor: publishing ? "not-allowed" : "pointer", display:"flex", alignItems:"center", gap:"0.5rem" }}>
-                  <Zap size={14} strokeWidth={2} /> {publishing ? "PUBLICATION…" : `PUBLIER L'ÉVÉNEMENT${proEventActive ? " + PRO EVENT" : ""}`}
+                  <Zap size={14} strokeWidth={2} /> {publishing
+                    ? (editing ? "ENREGISTREMENT…" : "PUBLICATION…")
+                    : editing ? "ENREGISTRER LES MODIFICATIONS" : `PUBLIER L'ÉVÉNEMENT${proEventActive ? " + PRO EVENT" : ""}`}
                 </button>
               </div>
             </div>

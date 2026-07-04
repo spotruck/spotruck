@@ -17,7 +17,7 @@ const S = {
 
 const NAV = [
   { icon: LayoutDashboard, label: "TABLEAU DE BORD",       href: "/dashboard/organisateur" },
-  { icon: CalendarDays,    label: "MON ÉVÉNEMENT",          href: "/dashboard/organisateur/evenement" },
+  { icon: CalendarDays,    label: "MES ÉVÉNEMENTS",         href: "/dashboard/organisateur/evenements" },
   { icon: Inbox,           label: "CANDIDATURES REÇUES",    href: "/dashboard/organisateur/candidatures" },
   { icon: Heart,           label: "MES TRUCKS FAVORIS",     href: "/dashboard/organisateur/favoris" },
   { icon: MessageSquare,   label: "MESSAGERIE",              href: "/dashboard/organisateur/messagerie" },

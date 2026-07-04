@@ -25,12 +25,26 @@ const NAV = [
   { icon: Settings,        label: "PARAMÈTRES",              href: "/dashboard/organisateur/parametres" },
 ];
 
+interface UserData {
+  displayName: string;
+  displaySubtitle: string;
+  initials: string;
+  planLabel: string;
+}
+
 interface Props {
   active: string;
+  userData?: UserData;
   badges?: Record<string, number>;
 }
 
-export default function OrganisateurSidebar({ active, badges = {} }: Props) {
+export default function OrganisateurSidebar({ active, userData, badges = {} }: Props) {
+  const {
+    displayName = "Organisateur",
+    displaySubtitle = "",
+    initials = "O",
+    planLabel = "Plan Gratuit",
+  } = userData || {};
   return (
     <aside style={{
       backgroundColor: S.brown,
@@ -98,10 +112,13 @@ export default function OrganisateurSidebar({ active, badges = {} }: Props) {
             width: 32, height: 32, borderRadius: "50%", backgroundColor: S.terra,
             display: "flex", alignItems: "center", justifyContent: "center",
             fontFamily: S.serif, fontSize: "0.9rem", fontWeight: 700, color: "#fff", flexShrink: 0,
-          }}>S</div>
-          <div>
-            <p style={{ fontFamily: S.sans, fontSize: "0.78rem", fontWeight: 400, color: S.cream }}>Sophie Mercier</p>
-            <p style={{ fontFamily: S.sans, fontSize: "0.6rem", color: S.muted, letterSpacing: "0.1em" }}>Association Culturelle</p>
+          }}>{initials}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontFamily: S.sans, fontSize: "0.78rem", fontWeight: 400, color: S.cream, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{displayName}</p>
+            {displaySubtitle && (
+              <p style={{ fontFamily: S.sans, fontSize: "0.6rem", color: S.muted, letterSpacing: "0.1em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{displaySubtitle}</p>
+            )}
+            <p style={{ fontFamily: S.sans, fontSize: "0.55rem", color: S.terra, letterSpacing: "0.15em", marginTop: "0.2rem", fontWeight: 500 }}>{planLabel}</p>
           </div>
         </div>
         <LogoutButton />

@@ -106,6 +106,15 @@ const TRANCHES_AGE = [
   "Adultes (26-39 ans)", "Adultes (40-59 ans)", "Seniors (60 ans et +)", "Tout public (toutes tranches)",
 ];
 const DOCS = ["KBIS", "HACCP", "RC Pro", "Photos du truck", "Pièce d'identité", "Carte grise", "Attestation formation hygiène"];
+const FOURCHETTES_VISITEURS = ["Moins de 500", "500-1000", "1000-5000", "5000-10000", "Plus de 10000"];
+// Borne basse de chaque fourchette, utilisée comme valeur numérique de référence en base
+const FOURCHETTE_VISITEURS_MIN: Record<string, number> = {
+  "Moins de 500": 0,
+  "500-1000": 500,
+  "1000-5000": 1000,
+  "5000-10000": 5000,
+  "Plus de 10000": 10000,
+};
 const MODELE_FIN = [
   { key:"droit",        label:"Droit de place",               sub:"Le truck vous paie un montant fixe pour participer" },
   { key:"privatisation",label:"Privatisation",                sub:"Vous rémunérez le truck pour sa prestation" },
@@ -169,12 +178,24 @@ interface ContratPDFData {
   heureFin: string;
   lieu: string;
   visiteurs: string;
+  nbTrucks: number;
+  truckDetails: string[];
+  surface: string;
+  elec: boolean;
+  typeElec: string;
+  amperage: string;
+  acces: boolean;
   modeleLabel: string;
   modeleMontant: string;
   acompte: number;
   soldeDate: string;
   precisions: string;
   docs: string[];
+  noteMin: number;
+  exclu: boolean;
+  excluType: string;
+  dateLimite: string;
+  modeCandidature: string;
   oblFt: { label: string; checked: boolean; heures: string }[];
   autreOblFt: string;
   oblOrg: { label: string; checked: boolean }[];
@@ -215,6 +236,15 @@ async function genererContratPDF(d: ContratPDFData) {
     doc.setDrawColor(212, 201, 188);
     doc.line(marginX, y, pageW - marginX, y);
     y += 7;
+  };
+
+  const h2 = (title: string) => {
+    checkBreak(10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    setTerra();
+    doc.text(title, marginX, y);
+    y += 5.5;
   };
 
   const paragraph = (text: string, opts?: { bold?: boolean; size?: number }) => {
@@ -277,34 +307,81 @@ async function genererContratPDF(d: ContratPDFData) {
     `${d.organisateurNom}${d.siretOrga ? `, SIRET ${d.siretOrga}` : ""}${d.adresseOrga ? `, domicilié(e) au ${d.adresseOrga}` : ""}, ci-après dénommé « l'Organisateur »,`
   );
   paragraph(`ET`, { bold: true, size: 9 });
-  paragraph(`Le prestataire de restauration mobile (foodtruck) retenu par l'Organisateur dans le cadre de la présente manifestation, ci-après dénommé « le Prestataire ».`);
+  paragraph(`Le prestataire de restauration mobile (foodtruck) retenu par l'Organisateur à l'issue de la consultation décrite ci-après, ci-après dénommé « le Prestataire ».`);
   y += 2;
   paragraph(`Il est convenu ce qui suit :`, { bold: true });
 
-  // ── Article 1 — Objet ──
-  h1("ARTICLE 1 — OBJET DU CONTRAT");
+  // ── Article 1 — Objet de la consultation ──
+  h1("ARTICLE 1 — OBJET DE LA CONSULTATION");
   paragraph(
-    `Le présent contrat a pour objet de définir les conditions dans lesquelles le Prestataire est autorisé à exercer une activité de restauration mobile lors de la manifestation intitulée "${d.titre || "[titre]"}"${d.typeEvt ? ` (${d.typeEvt})` : ""}, organisée par l'Organisateur.`
+    `L'Organisateur organise, sur la base du présent cahier des charges, une consultation en vue de sélectionner un ou plusieurs prestataires de restauration mobile (foodtrucks) pour assurer une prestation de restauration à l'occasion de la manifestation intitulée "${d.titre || "[titre]"}"${d.typeEvt ? ` (${d.typeEvt})` : ""}.`
   );
   if (d.description) paragraph(d.description);
   if (d.precisions) paragraph(`Précisions complémentaires : ${d.precisions}`);
+  paragraph(`Le présent document, une fois signé par le Prestataire retenu à l'issue de cette consultation, vaut convention d'occupation temporaire et engage les deux parties dans les conditions définies ci-après.`);
 
-  // ── Article 2 — Dates et lieu ──
-  h1("ARTICLE 2 — DATES, HORAIRES ET LIEU");
+  // ── Article 2 — Identification des espaces / emplacements ──
+  h1("ARTICLE 2 — IDENTIFICATION DES ESPACES ET EMPLACEMENTS");
+  paragraph(`La manifestation se tient à l'adresse suivante : ${d.lieu || "[lieu à préciser]"}.`);
+  paragraph(`Nombre d'emplacements proposés à la consultation : ${d.nbTrucks} emplacement(s)${d.surface ? `, d'une surface d'environ ${d.surface} m² chacun` : ""}.`);
+  const detailsRenseignes = d.truckDetails.filter(t => t.trim());
+  if (detailsRenseignes.length > 0) {
+    paragraph("Type de cuisine souhaité par emplacement :");
+    d.truckDetails.forEach((t, i) => { if (t.trim()) bullet(`Emplacement n°${i + 1} : ${t.trim()}`); });
+  }
+  paragraph("L'emplacement attribué au Prestataire est strictement réservé à l'activité de restauration mobile objet du présent contrat ; il ne peut être cédé, sous-loué ou modifié sans accord préalable et écrit de l'Organisateur.");
+
+  // ── Article 3 — Durée de l'autorisation ──
+  h1("ARTICLE 3 — DURÉE DE L'AUTORISATION");
   const periode = d.dateFin && d.dateFin !== d.dateDebut
     ? `du ${fmtDateFR(d.dateDebut)} au ${fmtDateFR(d.dateFin)}`
     : `le ${fmtDateFR(d.dateDebut)}`;
-  paragraph(`La manifestation se déroulera ${periode}${d.heureDebut ? `, de ${d.heureDebut}${d.heureFin ? ` à ${d.heureFin}` : ""}` : ""}, à l'adresse suivante : ${d.lieu || "[lieu à préciser]"}.`);
-  if (d.visiteurs) paragraph(`Fréquentation prévisionnelle : environ ${d.visiteurs} visiteurs.`);
+  paragraph(`La présente autorisation d'occupation est consentie ${periode}${d.heureDebut ? `, de ${d.heureDebut}${d.heureFin ? ` à ${d.heureFin}` : ""}` : ""}. Elle est strictement limitée à cette période et ne pourra en aucun cas donner lieu à une reconduction tacite.`);
+  if (d.visiteurs) paragraph(`Fréquentation estimée : ${d.visiteurs} visiteurs.`);
 
-  // ── Article 3 — Conditions financières ──
-  h1("ARTICLE 3 — CONDITIONS FINANCIÈRES");
-  paragraph(`Modèle de rémunération retenu : ${d.modeleLabel || "—"}.`);
+  // ── Article 4 — Modalités d'exploitation ──
+  h1("ARTICLE 4 — MODALITÉS D'EXPLOITATION");
+  h2("Horaires");
+  paragraph(`Le Prestataire exerce son activité durant les horaires d'ouverture au public de la manifestation, soit de ${d.heureDebut || "[heure de début]"} à ${d.heureFin || "la fin de la manifestation"}.`);
+  h2("Installation");
+  const oblInstallation = d.oblFt.find(o => o.label === "Arriver avant l'ouverture" && o.checked);
+  paragraph(`L'installation du foodtruck sur son emplacement doit être achevée${oblInstallation?.heures ? ` au moins ${oblInstallation.heures} heure(s) avant l'ouverture au public` : " avant l'ouverture au public"}, selon les modalités communiquées par l'Organisateur.`);
+  h2("Démontage");
+  paragraph("Le démontage et l'évacuation du matériel et des déchets ne peuvent intervenir qu'après la fermeture au public de la manifestation, dans les délais fixés par l'Organisateur. Le Prestataire s'engage à rester sur place jusqu'à la fin de la manifestation, sauf autorisation contraire.");
+  h2("Approvisionnement");
+  paragraph(`Les opérations d'approvisionnement et de livraison s'effectuent en dehors des horaires d'ouverture au public dans la mesure du possible${d.acces ? ", l'accès des véhicules utilitaires étant autorisé sur le site aux horaires convenus avec l'Organisateur" : ", l'accès des véhicules étant limité sur le site et devant être organisé au préalable avec l'Organisateur"}.`);
+
+  // ── Article 5 — Prescriptions techniques et sanitaires ──
+  h1("ARTICLE 5 — PRESCRIPTIONS TECHNIQUES ET SANITAIRES");
+  h2("Eau");
+  paragraph("Sauf disposition contraire expressément prévue par l'Organisateur, le Prestataire doit disposer de sa propre autonomie en eau potable et assurer l'évacuation de ses eaux usées dans le respect de la réglementation en vigueur.");
+  h2("Électricité");
+  if (d.elec) {
+    paragraph(`L'Organisateur met à disposition du Prestataire une alimentation électrique de type ${d.typeElec}${d.amperage ? `, d'un ampérage de ${d.amperage}A` : ""}. Le Prestataire demeure responsable de la conformité de son propre matériel de raccordement.`);
+  } else {
+    paragraph("Aucune alimentation électrique n'est fournie par l'Organisateur. Le Prestataire doit prévoir son propre dispositif d'alimentation autonome (groupe électrogène ou équivalent), dans le respect des normes de sécurité en vigueur.");
+  }
+  h2("Hygiène");
+  paragraph("Le Prestataire s'engage à respecter l'intégralité de la réglementation applicable en matière d'hygiène alimentaire (méthode HACCP) et à être en mesure de présenter, à première demande, tout document justificatif attestant de sa conformité.");
+  h2("Déchets");
+  paragraph("Le Prestataire assure le tri, la collecte et l'évacuation de ses propres déchets, dans le respect des consignes de tri de l'Organisateur, et s'engage à restituer son emplacement dans un parfait état de propreté à l'issue de la manifestation.");
+
+  // ── Article 6 — Redevance d'occupation ──
+  h1("ARTICLE 6 — REDEVANCE D'OCCUPATION");
+  paragraph(`Modèle de redevance retenu : ${d.modeleLabel || "—"}.`);
   paragraph(`Montant convenu : ${d.modeleMontant || "—"}.`);
   paragraph(`Un acompte de ${d.acompte}% est exigible à la signature du présent contrat. Le solde (${100 - d.acompte}%) sera versé au plus tard le ${fmtDateFR(d.soldeDate)}.`);
 
-  // ── Article 4 — Documents requis ──
-  h1("ARTICLE 4 — DOCUMENTS À FOURNIR PAR LE PRESTATAIRE");
+  // ── Article 7 — Critères de sélection des candidatures ──
+  h1("ARTICLE 7 — CRITÈRES DE SÉLECTION DES CANDIDATURES");
+  paragraph("Les candidatures des prestataires sont examinées par l'Organisateur au regard des critères suivants :");
+  bullet(`Note minimale exigée du Prestataire sur la plateforme Spotruck : ${d.noteMin}★`);
+  if (d.exclu) bullet(`Exclusivité accordée sur le type de cuisine suivant : ${d.excluType || "à préciser"}`);
+  if (d.dateLimite) bullet(`Date limite de dépôt des candidatures : ${fmtDateFR(d.dateLimite)}`);
+  bullet(`Mode de dépôt des candidatures : ${d.modeCandidature}`);
+
+  // ── Article 8 — Documents à fournir ──
+  h1("ARTICLE 8 — DOCUMENTS À FOURNIR PAR LE PRESTATAIRE");
   if (d.docs.length > 0) {
     paragraph("Préalablement à la manifestation, le Prestataire s'engage à transmettre à l'Organisateur les documents suivants :");
     d.docs.forEach(doc_ => bullet(doc_));
@@ -312,19 +389,16 @@ async function genererContratPDF(d: ContratPDFData) {
     paragraph("Aucun document spécifique n'est exigé pour cette manifestation.");
   }
 
-  // ── Article 5 — Obligations du Prestataire ──
-  h1("ARTICLE 5 — OBLIGATIONS DU PRESTATAIRE");
+  // ── Article 9 — Obligations et sanctions ──
+  h1("ARTICLE 9 — OBLIGATIONS ET SANCTIONS");
+  h2("Obligations du Prestataire");
   const oblFtChecked = d.oblFt.filter(o => o.checked);
   oblFtChecked.forEach((o, i) => bullet(`${o.label}${o.heures && i === 0 ? ` (${o.heures}h avant l'ouverture)` : ""}.`));
   if (d.autreOblFt) bullet(`${d.autreOblFt}.`);
-
-  // ── Article 6 — Obligations de l'Organisateur ──
-  h1("ARTICLE 6 — OBLIGATIONS DE L'ORGANISATEUR");
+  h2("Obligations de l'Organisateur");
   d.oblOrg.filter(o => o.checked).forEach(o => bullet(`${o.label}.`));
   if (d.autreOblOrg) bullet(`${d.autreOblOrg}.`);
-
-  // ── Article 7 — Conditions d'annulation ──
-  h1("ARTICLE 7 — CONDITIONS D'ANNULATION");
+  h2("Sanctions en cas d'annulation");
   paragraph("En cas d'annulation par l'une des parties, le remboursement des sommes versées s'effectue selon le barème suivant :");
   checkBreak(10 + d.paliers.length * 7);
   doc.setFillColor(237, 232, 223);
@@ -349,14 +423,8 @@ async function genererContratPDF(d: ContratPDFData) {
     y += 7.5;
   });
   y += 4;
-
-  // ── Article 8 — Résiliation ──
-  h1("ARTICLE 8 — RÉSILIATION");
-  paragraph("En cas de manquement grave de l'une des parties à ses obligations contractuelles, l'autre partie peut résilier le présent contrat avec un préavis de 48 heures, notifié par écrit. Les sommes versées restent acquises selon les conditions d'annulation définies à l'article 7.");
-
-  // ── Article 9 — Droit applicable et litiges ──
-  h1("ARTICLE 9 — DROIT APPLICABLE ET LITIGES");
-  paragraph("Le présent contrat est soumis au droit français. En cas de différend relatif à son interprétation ou à son exécution, les parties s'efforceront de trouver une solution amiable avant toute saisine des juridictions compétentes.");
+  h2("Manquement et résiliation");
+  paragraph("En cas de manquement grave de l'une des parties à ses obligations contractuelles ou aux présentes prescriptions, l'autre partie peut résilier le présent contrat avec un préavis de 48 heures, notifié par écrit. Les sommes versées restent acquises selon le barème défini ci-dessus. Le présent contrat est soumis au droit français ; en cas de différend, les parties s'efforceront de trouver une solution amiable avant toute saisine des juridictions compétentes.");
 
   // ── Signatures ──
   checkBreak(55);
@@ -570,12 +638,24 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
       heureFin,
       lieu,
       visiteurs,
+      nbTrucks: nbTrucksCount,
+      truckDetails,
+      surface,
+      elec,
+      typeElec,
+      amperage,
+      acces,
       modeleLabel: MODELE_FIN.find(m => m.key === modele)?.label ?? "",
       modeleMontant: modeleResume(),
       acompte,
       soldeDate,
       precisions,
       docs,
+      noteMin,
+      exclu,
+      excluType,
+      dateLimite,
+      modeCandidature: modesCand,
       oblFt,
       autreOblFt,
       oblOrg,
@@ -605,7 +685,7 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
       heure_debut: heureDebut || null,
       heure_fin: heureFin || null,
       lieu: lieu || "Lieu à préciser",
-      visiteurs_attendus: visiteurs ? parseInt(visiteurs, 10) : null,
+      visiteurs_attendus: visiteurs ? FOURCHETTE_VISITEURS_MIN[visiteurs] ?? null : null,
       nombre_trucks: nbTrucksCount,
       modele_financier: MODELE_FIN_DB[modele] ?? null,
       budget_truck: budgetTruck,
@@ -776,7 +856,17 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
               <Field label="ADRESSE COMPLÈTE *" value={lieu} error={errors.lieu}
                 onChange={v => { setLieu(v); if (v.trim()) setErrors(e => ({ ...e, lieu:"" })); }}
                 placeholder="Rue, code postal, ville" full />
-              <Field label="VISITEURS ATTENDUS" value={visiteurs} type="number" placeholder="500" onChange={setVisiteurs} />
+              <div style={{ gridColumn:"1/-1" }}>
+                <SubLabel>FRÉQUENTATION ESTIMÉE</SubLabel>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:"0.4rem" }}>
+                  {FOURCHETTES_VISITEURS.map(f => (
+                    <button key={f} onClick={() => setVisiteurs(f)}
+                      style={{ padding:"0.4rem 0.85rem", fontFamily:S.sans, fontSize:"0.68rem", backgroundColor: visiteurs === f ? S.terra : "transparent", color: visiteurs === f ? "#fff" : S.muted, border:`1px solid ${visiteurs === f ? S.terra : S.border}`, cursor:"pointer" }}>
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {Object.values(errors).some(Boolean) && (
@@ -1265,7 +1355,7 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
                     ["Date", dateDebut + (dateFin && dateFin !== dateDebut ? ` → ${dateFin}` : "")],
                     ["Horaires", heureDebut + (heureFin ? ` → ${heureFin}` : "")],
                     ["Lieu", lieu],
-                    ["Visiteurs", visiteurs || "—"],
+                    ["Fréquentation", visiteurs || "—"],
                   ].map(([k,v]) => (
                     <div key={k} style={{ display:"flex", gap:"0.5rem", padding:"0.35rem 0", borderBottom:`1px solid ${S.border}` }}>
                       <span style={{ fontFamily:S.sans, fontSize:"0.63rem", color:S.muted, minWidth:80 }}>{k}</span>
@@ -1446,7 +1536,7 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
                     Le foodtrucker s'engage à fournir une prestation de restauration mobile lors de l'événement{" "}
                     <strong>"{titre || "[titre]"}"</strong> se déroulant le{" "}
                     <strong>{dateDebut || "[date]"}</strong>{dateFin && dateFin !== dateDebut ? ` au ${dateFin}` : ""}{" "}
-                    à <strong>{lieu || "[lieu]"}</strong>, en présence d'environ <strong>{visiteurs || "[n]"}</strong> visiteurs.
+                    à <strong>{lieu || "[lieu]"}</strong>, avec une fréquentation estimée de <strong>{visiteurs || "[fréquentation]"}</strong> visiteurs.
                   </div>
                   <Field label="PRÉCISIONS SUPPLÉMENTAIRES" value={precisions} onChange={setPrecisions}
                     type="textarea" rows={2} placeholder="Cuisine spécifique, contraintes particulières..." />
@@ -1604,19 +1694,44 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
               Et le foodtrucker retenu, ci-après dénommé <em>"le Prestataire"</em>.
             </p>
 
-            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 1 — Objet</h2>
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 1 — Objet de la consultation</h2>
             <p style={{ color:"#333", fontSize:"0.88rem" }}>
-              Le Prestataire s'engage à fournir une prestation de restauration mobile lors de <strong>"{titre || "[titre]"}"</strong>, le <strong>{dateDebut || "[date]"}</strong> à <strong>{lieu || "[lieu]"}</strong> pour environ {visiteurs || "—"} visiteurs.
+              L'Organisateur sélectionne un ou plusieurs prestataires de restauration mobile (foodtrucks) pour assurer une prestation lors de la manifestation <strong>"{titre || "[titre]"}"</strong>{typeEvt ? ` (${typeEvt})` : ""}.
               {precisions && ` ${precisions}`}
             </p>
 
-            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 2 — Conditions financières</h2>
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 2 — Identification des espaces et emplacements</h2>
+            <p style={{ color:"#333", fontSize:"0.88rem" }}>
+              Lieu : <strong>{lieu || "[lieu]"}</strong>. Nombre d'emplacements : <strong>{nbTrucksCount}</strong>{surface ? `, surface d'environ ${surface} m² chacun` : ""}.
+            </p>
+
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 3 — Durée de l'autorisation</h2>
+            <p style={{ color:"#333", fontSize:"0.88rem" }}>
+              Le <strong>{dateDebut || "[date]"}</strong>{dateFin && dateFin !== dateDebut ? ` au ${dateFin}` : ""}{heureDebut ? `, de ${heureDebut}${heureFin ? ` à ${heureFin}` : ""}` : ""}.{visiteurs ? ` Fréquentation estimée : ${visiteurs} visiteurs.` : ""}
+            </p>
+
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 4 — Modalités d'exploitation</h2>
+            <p style={{ color:"#333", fontSize:"0.88rem" }}>
+              Horaires d'ouverture au public : {heureDebut || "[heure]"} à {heureFin || "la fin de la manifestation"}. Installation avant l'ouverture, démontage après la fermeture au public, approvisionnement en dehors des horaires d'ouverture{acces ? " (accès véhicule utilitaire autorisé)" : " (accès véhicule limité)"}.
+            </p>
+
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 5 — Prescriptions techniques et sanitaires</h2>
+            <p style={{ color:"#333", fontSize:"0.88rem" }}>
+              Eau : autonomie du Prestataire sauf disposition contraire. Électricité : {elec ? `${typeElec}${amperage ? ` ${amperage}A` : ""} fourni par l'Organisateur` : "non fournie, à la charge du Prestataire"}. Hygiène : respect de la méthode HACCP. Déchets : tri et évacuation à la charge du Prestataire.
+            </p>
+
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 6 — Redevance d'occupation</h2>
             <p style={{ color:"#333", fontSize:"0.88rem" }}>
               Modèle : <strong>{MODELE_FIN.find(m => m.key === modele)?.label}</strong>. Montant : <strong>{modeleResume() || "—"}</strong>.<br />
               Acompte de <strong>{acompte}%</strong> à la signature. Solde ({100-acompte}%) au {soldeDate || "[date solde]"}.
             </p>
 
-            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 3 — Documents à fournir</h2>
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 7 — Critères de sélection des candidatures</h2>
+            <p style={{ color:"#333", fontSize:"0.88rem" }}>
+              Note minimale exigée : {noteMin}★.{exclu ? ` Exclusivité : ${excluType || "à préciser"}.` : ""}{dateLimite ? ` Date limite de candidature : ${dateLimite}.` : ""} Mode de candidature : {modesCand}.
+            </p>
+
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 8 — Documents à fournir</h2>
             {docs.length > 0 ? (
               <ul style={{ color:"#333", fontSize:"0.88rem", paddingLeft:"1.5rem" }}>
                 {docs.map((doc, i) => <li key={i}>{doc}</li>)}
@@ -1625,21 +1740,20 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
               <p style={{ color:"#333", fontSize:"0.88rem" }}>Aucun document spécifique n'est exigé.</p>
             )}
 
-            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 4 — Obligations du Prestataire</h2>
+            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 9 — Obligations et sanctions</h2>
+            <p style={{ color:"#333", fontSize:"0.85rem", fontWeight:700, marginBottom:"0.25rem" }}>Obligations du Prestataire</p>
             <ul style={{ color:"#333", fontSize:"0.88rem", paddingLeft:"1.5rem" }}>
               {oblFt.filter(o => o.checked).map((o, i) => (
                 <li key={i}>{o.label}{o.heures && i === 0 ? ` (${o.heures}h avant ouverture)` : ""}.</li>
               ))}
               {autreOblFt && <li>{autreOblFt}.</li>}
             </ul>
-
-            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 5 — Obligations de l'Organisateur</h2>
+            <p style={{ color:"#333", fontSize:"0.85rem", fontWeight:700, marginBottom:"0.25rem", marginTop:"0.75rem" }}>Obligations de l'Organisateur</p>
             <ul style={{ color:"#333", fontSize:"0.88rem", paddingLeft:"1.5rem" }}>
               {oblOrg.filter(o => o.checked).map((o, i) => <li key={i}>{o.label}.</li>)}
               {autreOblOrg && <li>{autreOblOrg}.</li>}
             </ul>
-
-            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 6 — Annulation</h2>
+            <p style={{ color:"#333", fontSize:"0.85rem", fontWeight:700, marginBottom:"0.25rem", marginTop:"0.75rem" }}>Sanctions en cas d'annulation</p>
             <table style={{ width:"100%", borderCollapse:"collapse", fontSize:"0.85rem", color:"#333" }}>
               <thead>
                 <tr style={{ backgroundColor:"#f5f0ea" }}>
@@ -1656,10 +1770,8 @@ export default function EvenementClient({ organisateurId, organisateurNom }: Pro
                 ))}
               </tbody>
             </table>
-
-            <h2 style={{ fontSize:"1rem", fontWeight:700, color:"#2C1810", marginBottom:"0.5rem", marginTop:"1.5rem" }}>Article 7 — Résiliation</h2>
-            <p style={{ color:"#333", fontSize:"0.88rem" }}>
-              En cas de manquement grave, chaque partie peut résilier avec un préavis de 48 heures par notification écrite.
+            <p style={{ color:"#333", fontSize:"0.88rem", marginTop:"0.75rem" }}>
+              En cas de manquement grave, chaque partie peut résilier avec un préavis de 48 heures par notification écrite. Le présent contrat est soumis au droit français.
             </p>
 
             <div style={{ marginTop:"3rem", display:"grid", gridTemplateColumns:"1fr 1fr", gap:"2rem" }}>

@@ -5,10 +5,12 @@ const OpportunitesMap = dynamic(() => import("./OpportunitesMap"), { ssr: false 
 import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
 import { createClient } from "@/lib/supabase/client";
+import { getCoordonneesVille } from "@/lib/geo";
 import {
   MapPin, Users, Euro, CalendarDays, SlidersHorizontal, ArrowRight, X,
   Search, CheckCircle, AlertCircle, RotateCcw, Bookmark, BookmarkCheck,
-  ExternalLink, Mail, Send, Copy, AlertTriangle, Clock,
+  ExternalLink, Mail, Send, Copy, AlertTriangle, Clock, Map as MapIcon,
+  Paperclip, FileText, Image as ImageIcon,
 } from "lucide-react";
 
 // ─── Design tokens ────────────────────────────────────────────
@@ -92,6 +94,19 @@ function isNouveau(iso: string): boolean {
   return (Date.now() - new Date(iso).getTime()) < 48 * 60 * 60 * 1000;
 }
 
+// ─── Pièces jointes candidature ────────────────────────────────
+const ATTACH_ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp";
+const ATTACH_MAX_FILES = 5;
+const ATTACH_MAX_MB = 10;
+
+function attachMimeOf(name: string): "pdf" | "image" {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return ext === "pdf" ? "pdf" : "image";
+}
+function fmtFileSize(bytes: number) {
+  return bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 // ─── LocalStorage hook ────────────────────────────────────────
 const LS_KEY = "spotruck_favoris";
 
@@ -134,13 +149,25 @@ function ModaleFiche({
   submitting: boolean;
   onClose: () => void;
   onSave: () => void;
-  onCandidature: (message: string) => void;
+  onCandidature: (message: string, files: File[]) => void;
 }) {
   const [message, setMessage] = useState("");
   const [joinDocs, setJoinDocs] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const MAX_CHARS = 500;
   const jours = joursRestants(event.dateLimiteCandidatureISO);
+
+  function pickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? []);
+    const remaining = ATTACH_MAX_FILES - attachedFiles.length;
+    const toAdd = picked.slice(0, remaining).filter(f => f.size <= ATTACH_MAX_MB * 1024 * 1024);
+    setAttachedFiles(prev => [...prev, ...toAdd]);
+    e.target.value = "";
+  }
+  function removeFile(idx: number) {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== idx));
+  }
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -346,9 +373,49 @@ function ModaleFiche({
                     Joindre automatiquement mes documents disponibles ({DOCS_PROFIL.filter(d => event.documentsRequis.includes(d)).join(", ")})
                   </span>
                 </label>
+
+                {/* Pièces jointes manuelles */}
+                <div style={{ marginBottom: "1.25rem" }}>
+                  <label style={{ fontFamily: S.sans, fontSize: "0.6rem", letterSpacing: "0.2em", color: S.muted, display: "block", marginBottom: "0.5rem" }}>
+                    PIÈCES JOINTES (facultatif)
+                  </label>
+                  {attachedFiles.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginBottom: "0.5rem" }}>
+                      {attachedFiles.map((f, i) => {
+                        const mime = attachMimeOf(f.name);
+                        return (
+                          <div key={`${f.name}-${i}`} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.75rem", backgroundColor: S.cream, border: `1px solid ${S.border}` }}>
+                            {mime === "pdf"
+                              ? <FileText size={14} color="#C0392B" strokeWidth={1.5} />
+                              : <ImageIcon size={14} color="#2E6DA4" strokeWidth={1.5} />
+                            }
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <p style={{ fontFamily: S.sans, fontSize: "0.72rem", fontWeight: 500, color: S.brown, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</p>
+                              <p style={{ fontFamily: S.sans, fontSize: "0.6rem", color: S.muted }}>{fmtFileSize(f.size)}</p>
+                            </div>
+                            <button onClick={() => removeFile(i)} style={{ background: "none", border: "none", cursor: "pointer", padding: "0.2rem", flexShrink: 0, color: S.muted, display: "flex", alignItems: "center" }}>
+                              <X size={13} strokeWidth={2} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {attachedFiles.length < ATTACH_MAX_FILES && (
+                    <>
+                      <input id="ft-candidature-files" type="file" multiple accept={ATTACH_ACCEPT} onChange={pickFiles} style={{ display: "none" }} />
+                      <label htmlFor="ft-candidature-files" style={{ display: "flex", alignItems: "center", gap: "0.45rem", border: `1px dashed ${S.border}`, padding: "0.45rem 0.875rem", fontFamily: S.sans, fontSize: "0.6rem", letterSpacing: "0.15em", color: S.muted, cursor: "pointer", width: "100%", boxSizing: "border-box" }}>
+                        <Paperclip size={12} strokeWidth={1.5} />
+                        AJOUTER UNE PIÈCE JOINTE
+                        <span style={{ marginLeft: "auto", color: S.border }}>{attachedFiles.length}/{ATTACH_MAX_FILES} · PDF, JPG, PNG · max {ATTACH_MAX_MB}MB</span>
+                      </label>
+                    </>
+                  )}
+                </div>
+
                 <button
                   disabled={message.trim().length < 20 || submitting}
-                  onClick={() => onCandidature(message.trim())}
+                  onClick={() => onCandidature(message.trim(), attachedFiles)}
                   style={{
                     ...btnBase,
                     backgroundColor: message.trim().length >= 20 && !submitting ? S.terra : S.muted,
@@ -409,6 +476,7 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
   const [modalEvent, setModalEvent] = useState<Evenement | null>(null);
   const [toast, setToast]           = useState<{ msg: string; color: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showMap, setShowMap]       = useState(false);
 
   // Hydration localStorage
   useEffect(() => {
@@ -455,14 +523,25 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
     });
   }
 
-  async function handleCandidature(ev: Evenement, message: string) {
+  async function handleCandidature(ev: Evenement, message: string, files: File[]) {
     setSubmitting(true);
     const supabase = createClient();
+
+    const piecesJointes: { nom: string; url: string; type: string }[] = [];
+    for (const file of files) {
+      const path = `candidatures/${foodtruckerId}/${ev.id}/${Date.now()}-${file.name}`;
+      const { error: uploadError } = await supabase.storage.from("spotruck-uploads").upload(path, file);
+      if (uploadError) continue;
+      const { data: pub } = supabase.storage.from("spotruck-uploads").getPublicUrl(path);
+      piecesJointes.push({ nom: file.name, url: pub.publicUrl, type: file.type });
+    }
+
     const { error } = await supabase.from("candidatures").insert({
       evenement_id: String(ev.id),
       foodtrucker_id: foodtruckerId,
       message,
       statut: "en_attente",
+      pieces_jointes: piecesJointes,
     });
     setSubmitting(false);
 
@@ -643,9 +722,29 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
               </div>
             )}
 
+            {/* ── Bouton toggle carte ── */}
+            <div style={{ marginBottom: "1rem" }}>
+              <button onClick={() => setShowMap(v => !v)} style={{
+                display: "flex", alignItems: "center", gap: "0.5rem",
+                backgroundColor: showMap ? S.terra : "transparent",
+                color: showMap ? "#fff" : S.brown,
+                border: `1px solid ${showMap ? S.terra : S.border}`,
+                padding: "0.65rem 1.25rem", fontFamily: S.sans, fontSize: "0.62rem",
+                letterSpacing: "0.2em", cursor: "pointer",
+              }}>
+                <MapIcon size={13} strokeWidth={1.5} />
+                {showMap ? "MASQUER LA CARTE" : "VOIR LA CARTE"}
+              </button>
+            </div>
+
             {/* ── Cartes ── */}
             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-              <OpportunitesMap evenements={filtered.map(ev => ({ id: ev.id, titre: ev.titre, ville: ev.ville, date: ev.date, budgetLabel: ev.budgetLabel, coords: null }))} onVoirDetail={(id) => { const ev = filtered.find(e => e.id === id); if(ev) setModalEvent(ev); }} />
+              {showMap && (
+                <OpportunitesMap
+                  evenements={filtered.map(ev => ({ id: ev.id, titre: ev.titre, ville: ev.ville, date: ev.date, budgetLabel: ev.budgetLabel, coords: getCoordonneesVille(ev.ville) }))}
+                  onVoirDetail={(id) => { const ev = filtered.find(e => e.id === id); if(ev) setModalEvent(ev); }}
+                />
+              )}
               {filtered.map((ev) => {
                 const isSaved = saved.has(ev.id);
                 const isCandide = candide.has(ev.id);
@@ -901,7 +1000,7 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
           submitting={submitting}
           onClose={() => setModalEvent(null)}
           onSave={() => toggleSave(modalEvent.id)}
-          onCandidature={(message) => handleCandidature(modalEvent, message)}
+          onCandidature={(message, files) => handleCandidature(modalEvent, message, files)}
         />
       )}
 

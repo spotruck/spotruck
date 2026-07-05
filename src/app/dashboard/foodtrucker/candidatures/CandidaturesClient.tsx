@@ -5,6 +5,7 @@ import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
 import { createClient } from "@/lib/supabase/client";
 import {
   Eye, MessageSquare, XCircle, CheckCircle, X, Send, AlertTriangle,
+  Paperclip, FileText, Image as ImageIcon,
 } from "lucide-react";
 
 // ─── Design tokens ────────────────────────────────────────────
@@ -39,6 +40,7 @@ export interface Candidature {
   statut: Statut;
   dateEnvoiISO: string;
   messageCandidature: string;
+  piecesJointes: { nom: string; url: string; type: string }[];
   documentsEnvoyes: string[];
   messages: Message[];
 }
@@ -173,6 +175,25 @@ function ModaleVoir({ c, onClose }: { c: Candidature; onClose: () => void }) {
                 <span key={d} style={{ display: "flex", alignItems: "center", gap: "0.3rem", backgroundColor: "rgba(44,122,75,0.08)", border: "1px solid rgba(44,122,75,0.2)", padding: "0.3rem 0.7rem", fontFamily: S.sans, fontSize: "0.65rem", color: "#2C7A4B" }}>
                   <CheckCircle size={11} strokeWidth={2} /> {d}
                 </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Pièces jointes envoyées */}
+        {c.piecesJointes.length > 0 && (
+          <div style={{ marginBottom: "1.75rem" }}>
+            <p style={{ fontFamily: S.sans, fontSize: "0.6rem", letterSpacing: "0.2em", color: S.muted, marginBottom: "0.75rem" }}>PIÈCES JOINTES ENVOYÉES</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              {c.piecesJointes.map((f, i) => (
+                <a key={i} href={f.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.75rem", backgroundColor: S.card, border: `1px solid ${S.border}`, textDecoration: "none" }}>
+                  {f.type === "application/pdf"
+                    ? <FileText size={14} color="#C0392B" strokeWidth={1.5} />
+                    : <ImageIcon size={14} color="#2E6DA4" strokeWidth={1.5} />
+                  }
+                  <span style={{ fontFamily: S.sans, fontSize: "0.75rem", color: S.brown, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.nom}</span>
+                  <Paperclip size={12} strokeWidth={1.5} color={S.muted} />
+                </a>
               ))}
             </div>
           </div>

@@ -54,7 +54,7 @@ export default async function CandidaturesPage() {
   if (evenementIds.length > 0) {
     const { data: candRows } = await supabase
       .from('candidatures')
-      .select('id, evenement_id, foodtrucker_id, message, statut, created_at')
+      .select('id, evenement_id, foodtrucker_id, message, statut, created_at, pieces_jointes')
       .in('evenement_id', evenementIds)
       .order('created_at', { ascending: false });
 
@@ -64,7 +64,8 @@ export default async function CandidaturesPage() {
     let foodtruckers: {
       id: string; nom_truck: string; cuisines: string[] | null; ville: string | null;
       note_moyenne: number | null; plan: string | null; longueur: number | null;
-      largeur: number | null; amperage: number | null;
+      largeur: number | null; amperage: number | null; description: string | null;
+      photo_truck_url: string | null; photos_plats: string[] | null;
     }[] = [];
     let documents: { foodtrucker_id: string; type: string }[] = [];
     let avisRows: { cible_id: string; note_globale: number; commentaire: string | null }[] = [];
@@ -72,7 +73,7 @@ export default async function CandidaturesPage() {
     if (foodtruckerIds.length > 0) {
       const [{ data: ftData }, { data: docData }, { data: avisData }] = await Promise.all([
         supabase.from('foodtruckers')
-          .select('id, nom_truck, cuisines, ville, note_moyenne, plan, longueur, largeur, amperage')
+          .select('id, nom_truck, cuisines, ville, note_moyenne, plan, longueur, largeur, amperage, description, photo_truck_url, photos_plats')
           .in('id', foodtruckerIds),
         supabase.from('documents').select('foodtrucker_id, type').in('foodtrucker_id', foodtruckerIds),
         supabase.from('avis').select('cible_id, note_globale, commentaire').in('cible_id', foodtruckerIds).limit(30),
@@ -114,6 +115,10 @@ export default async function CandidaturesPage() {
         evenementVille: evt?.ville || "",
         evenementDate: "",
         evenementContrat: evt || null,
+        descriptionComplete: ft?.description || "",
+        photoTruckUrl: ft?.photo_truck_url || null,
+        photosPlats: ft?.photos_plats || [],
+        piecesJointes: Array.isArray(r.pieces_jointes) ? r.pieces_jointes : [],
       };
     });
   }

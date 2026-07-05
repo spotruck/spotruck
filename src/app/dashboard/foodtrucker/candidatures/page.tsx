@@ -50,7 +50,7 @@ export default async function CandidaturesPage() {
 
   const { data: candRows } = await supabase
     .from("candidatures")
-    .select("id, evenement_id, message, message_reponse, statut, created_at, updated_at")
+    .select("id, evenement_id, message, message_reponse, statut, created_at, updated_at, pieces_jointes")
     .eq("foodtrucker_id", user.id)
     .order("created_at", { ascending: false });
 
@@ -94,6 +94,7 @@ export default async function CandidaturesPage() {
       statut: STATUT_MAP[r.statut] || "attente",
       dateEnvoiISO: r.created_at,
       messageCandidature: r.message || "",
+      piecesJointes: Array.isArray(r.pieces_jointes) ? r.pieces_jointes : [],
       documentsEnvoyes,
       messages: r.message_reponse
         ? [{ id: `resp-${r.id}`, auteur: "organisateur" as const, texte: r.message_reponse, dateISO: r.updated_at || r.created_at }]

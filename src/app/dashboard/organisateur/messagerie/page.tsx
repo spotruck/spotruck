@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import OrganisateurSidebar from "@/components/dashboard/OrganisateurSidebar";
 import {
   Send, CheckCircle, Paperclip, FileText, Image as ImageIcon, X,
@@ -450,12 +451,41 @@ function ConfirmDeleteModal({ nom, onConfirm, onClose }: { nom:string; onConfirm
 }
 
 // ─── Page ─────────────────────────────────────────────────────
-export default function MessageriePage() {
+function MessageriePageInner() {
+  const searchParams = useSearchParams();
   const [convs,    setConvs]    = useState<Conv[]>(CONVS_INIT);
   const [activeId, setActiveId] = useState<string>("conv1");
   const [draft,    setDraft]    = useState("");
   const [pending,  setPending]  = useState<Attachment[]>([]);
   const bottomRef              = useRef<HTMLDivElement>(null);
+
+  // ── Deep-link : ouvrir ou créer la conversation d'un truck ──
+  // (ex: venant du bouton "MSG" des candidatures : ?truck=Nom&cuisine=Cuisine)
+  useEffect(() => {
+    const truckParam = searchParams.get("truck");
+    if (!truckParam) return;
+    const cuisineParam = searchParams.get("cuisine") || "";
+    setConvs(prev => {
+      const existing = prev.find(c => !c.groupe && c.truck.toLowerCase() === truckParam.toLowerCase());
+      if (existing) {
+        setActiveId(existing.id);
+        return prev;
+      }
+      const newConv: Conv = {
+        id: `conv-${Date.now()}`,
+        truck: truckParam,
+        cuisine: cuisineParam,
+        statut: "EN ATTENTE",
+        messages: [],
+        lastMsg: "",
+        lastDate: "Maintenant",
+        nonLus: 0,
+      };
+      setActiveId(newConv.id);
+      return [newConv, ...prev];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // ── Features ──────────────────────────────────────────────
   const [query,        setQuery]       = useState("");
@@ -742,5 +772,13 @@ export default function MessageriePage() {
         </div>
       )}
     </main>
+  );
+}
+
+export default function MessageriePage() {
+  return (
+    <Suspense>
+      <MessageriePageInner />
+    </Suspense>
   );
 }

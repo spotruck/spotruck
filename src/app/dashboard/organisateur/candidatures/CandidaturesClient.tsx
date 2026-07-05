@@ -7,9 +7,10 @@ import { createClient } from "@/lib/supabase/client";
 import {
   Star, CheckCircle, XCircle, MessageSquare, User,
   Lightbulb, ChevronDown, X, Filter, Send, AlertTriangle,
-  Paperclip, FileText, Image as ImageIcon,
+  Paperclip, FileText, Image as ImageIcon, ExternalLink, MapPin,
 } from "lucide-react";
 import { genererContratPDF, buildContratDataFromEvenement, type EvenementForContrat } from "@/lib/contrat/genererContratPDF";
+import { getCoordonneesVille } from "@/lib/geo";
 
 // ─── Design tokens ────────────────────────────────────────────
 const S = {
@@ -40,6 +41,10 @@ export interface Candidature {
   foodtruckerId: string; evenementId: string;
   evenementTitre: string; evenementVille: string; evenementDate: string;
   evenementContrat: EvenementForContrat | null;
+  descriptionComplete: string;
+  photoTruckUrl: string | null;
+  photosPlats: string[];
+  piecesJointes: { nom: string; url: string; type: string }[];
 }
 
 interface Props {
@@ -427,7 +432,7 @@ export default function CandidaturesClient({ initialCandidatures, organisateurNo
                           <XCircle size={11} strokeWidth={1.5} /> REFUSER
                         </button>
                       )}
-                      <button onClick={() => router.push("/dashboard/organisateur/messagerie")} style={{ backgroundColor:"transparent", color:S.muted, border:`1px solid ${S.border}`, padding:"0.4rem 0.75rem", fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.12em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.3rem" }}>
+                      <button onClick={() => router.push(`/dashboard/organisateur/messagerie?truck=${encodeURIComponent(c.truck)}&cuisine=${encodeURIComponent(c.cuisine)}`)} style={{ backgroundColor:"transparent", color:S.muted, border:`1px solid ${S.border}`, padding:"0.4rem 0.75rem", fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.12em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.3rem" }}>
                         <MessageSquare size={11} strokeWidth={1.5} /> MSG
                       </button>
                     </div>
@@ -612,6 +617,72 @@ export default function CandidaturesClient({ initialCandidatures, organisateurNo
               </div>
               <button onClick={() => setModale(null)} style={{ background:"none", border:"none", cursor:"pointer" }}><X size={20} color={S.muted} /></button>
             </div>
+
+            {/* Photo du truck */}
+            {modale.photoTruckUrl && (
+              <div style={{ marginBottom:"1.5rem" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={modale.photoTruckUrl} alt={`Photo de ${modale.truck}`} style={{ width:"100%", maxHeight:280, objectFit:"cover", display:"block" }} />
+              </div>
+            )}
+
+            {/* Description complète */}
+            {modale.descriptionComplete && (
+              <div style={{ marginBottom:"1.5rem" }}>
+                <p style={{ fontFamily:S.sans, fontSize:"0.6rem", letterSpacing:"0.2em", color:S.terra, fontWeight:700, marginBottom:"0.75rem" }}>DESCRIPTION</p>
+                <p style={{ fontFamily:S.sans, fontSize:"0.82rem", fontWeight:300, color:S.brown, lineHeight:1.7, backgroundColor:S.card, padding:"1rem" }}>
+                  {modale.descriptionComplete}
+                </p>
+              </div>
+            )}
+
+            {/* Photos des plats */}
+            {modale.photosPlats.length > 0 && (
+              <div style={{ marginBottom:"1.5rem" }}>
+                <p style={{ fontFamily:S.sans, fontSize:"0.6rem", letterSpacing:"0.2em", color:S.terra, fontWeight:700, marginBottom:"0.75rem" }}>PHOTOS DES PLATS</p>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:"0.4rem" }}>
+                  {modale.photosPlats.map((url, i) => (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img key={i} src={url} alt={`Plat ${i + 1} de ${modale.truck}`} style={{ width:"100%", aspectRatio:"4/3", objectFit:"cover", display:"block" }} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Pièces jointes de la candidature */}
+            {modale.piecesJointes.length > 0 && (
+              <div style={{ marginBottom:"1.5rem" }}>
+                <p style={{ fontFamily:S.sans, fontSize:"0.6rem", letterSpacing:"0.2em", color:S.terra, fontWeight:700, marginBottom:"0.75rem" }}>PIÈCES JOINTES</p>
+                <div style={{ display:"flex", flexDirection:"column", gap:"0.35rem" }}>
+                  {modale.piecesJointes.map((f, i) => (
+                    <a key={i} href={f.url} target="_blank" rel="noreferrer" style={{ display:"flex", alignItems:"center", gap:"0.6rem", padding:"0.5rem 0.75rem", backgroundColor:S.card, border:`1px solid ${S.border}`, textDecoration:"none" }}>
+                      {f.type === "application/pdf"
+                        ? <FileText size={14} color="#C0392B" strokeWidth={1.5} />
+                        : <ImageIcon size={14} color="#2E6DA4" strokeWidth={1.5} />
+                      }
+                      <span style={{ fontFamily:S.sans, fontSize:"0.75rem", color:S.brown, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.nom}</span>
+                      <Paperclip size={12} strokeWidth={1.5} color={S.muted} />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Lien carte localisation */}
+            {modale.ville && (() => {
+              const coords = getCoordonneesVille(modale.ville);
+              const mapUrl = coords
+                ? `https://www.openstreetmap.org/?mlat=${coords[0]}&mlon=${coords[1]}#map=12/${coords[0]}/${coords[1]}`
+                : `https://www.openstreetmap.org/search?query=${encodeURIComponent(modale.ville)}`;
+              return (
+                <div style={{ marginBottom:"1.5rem" }}>
+                  <a href={mapUrl} target="_blank" rel="noreferrer" style={{ display:"inline-flex", alignItems:"center", gap:"0.4rem", fontFamily:S.sans, fontSize:"0.72rem", color:S.terra, textDecoration:"none", borderBottom:`1px solid ${S.terra}` }}>
+                    <MapPin size={13} strokeWidth={1.5} /> Voir {modale.ville} sur la carte <ExternalLink size={11} strokeWidth={1.5} />
+                  </a>
+                </div>
+              );
+            })()}
+
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"2px", marginBottom:"1.5rem" }}>
               {[
                 { l:"COMPATIBILITÉ", v:`${modale.score}%`, c: modale.score >= 90 ? S.green : modale.score >= 75 ? S.amber : S.muted },
@@ -661,7 +732,7 @@ export default function CandidaturesClient({ initialCandidatures, organisateurNo
                   <CheckCircle size={14} strokeWidth={2} /> RETENIR CE TRUCK
                 </button>
               )}
-              <button onClick={() => router.push("/dashboard/organisateur/messagerie")}
+              <button onClick={() => router.push(`/dashboard/organisateur/messagerie?truck=${encodeURIComponent(modale.truck)}&cuisine=${encodeURIComponent(modale.cuisine)}`)}
                 style={{ flex:1, backgroundColor:"transparent", color:S.terra, border:`1px solid ${S.terra}`, padding:"0.875rem", fontFamily:S.sans, fontSize:"0.65rem", letterSpacing:"0.2em", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:"0.5rem" }}>
                 <MessageSquare size={14} strokeWidth={1.5} /> CONTACTER
               </button>

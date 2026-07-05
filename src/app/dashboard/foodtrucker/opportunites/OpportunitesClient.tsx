@@ -5,7 +5,7 @@ const OpportunitesMap = dynamic(() => import("./OpportunitesMap"), { ssr: false 
 import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
 import { createClient } from "@/lib/supabase/client";
-import { getCoordonneesVille } from "@/lib/geo";
+import { getCoordonneesVille, getRegionVille } from "@/lib/geo";
 import {
   MapPin, Users, Euro, CalendarDays, SlidersHorizontal, ArrowRight, X,
   Search, CheckCircle, AlertCircle, RotateCcw, Bookmark, BookmarkCheck,
@@ -502,7 +502,7 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
     const bMax = budgetMax ? parseInt(budgetMax) : Infinity;
     const budgetFilterActive = bMin > 0 || bMax < Infinity;
     return initialEvenements.filter((ev) => {
-      if (q && !normalize(`${ev.titre} ${ev.ville} ${ev.type} ${ev.region}`).includes(q)) return false;
+      if (q && !normalize(`${ev.titre} ${ev.ville} ${ev.type} ${ev.region} ${getRegionVille(ev.ville) ?? ""}`).includes(q)) return false;
       if (region !== "Toutes les régions" && ev.region !== region) return false;
       if (typesChecked.length > 0 && !typesChecked.includes(ev.type)) return false;
       // Un budget non communiqué (0) ne peut pas être évalué par un filtre de prix actif
@@ -536,10 +536,13 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
     const supabase = createClient();
 
     const piecesJointes: { nom: string; url: string; type: string }[] = [];
+    let uploadFailures = 0;
     for (const file of files) {
-      const path = `candidatures/${foodtruckerId}/${ev.id}/${Date.now()}-${file.name}`;
+      // Le premier segment du chemin doit être l'uid du foodtrucker : c'est ce que
+      // vérifie la policy RLS "Foodtrucker uploads own files" sur storage.objects.
+      const path = `${foodtruckerId}/candidatures/${ev.id}/${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage.from("spotruck-uploads").upload(path, file);
-      if (uploadError) continue;
+      if (uploadError) { uploadFailures++; continue; }
       const { data: pub } = supabase.storage.from("spotruck-uploads").getPublicUrl(path);
       piecesJointes.push({ nom: file.name, url: pub.publicUrl, type: file.type });
     }
@@ -564,7 +567,12 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
 
     setCandide(s => new Set(s).add(ev.id));
     setModalEvent(null);
-    setToast({ msg: `Candidature envoyée pour "${ev.titre}" !`, color: "#2C7A4B" });
+    setToast({
+      msg: uploadFailures > 0
+        ? `Candidature envoyée pour "${ev.titre}" — ${uploadFailures} pièce${uploadFailures > 1 ? "s" : ""} jointe${uploadFailures > 1 ? "s" : ""} n'a pas pu être envoyée.`
+        : `Candidature envoyée pour "${ev.titre}" !`,
+      color: uploadFailures > 0 ? "#B8850A" : "#2C7A4B",
+    });
   }
 
   const selectStyle: React.CSSProperties = {

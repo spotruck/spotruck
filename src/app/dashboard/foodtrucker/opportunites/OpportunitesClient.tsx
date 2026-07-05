@@ -85,7 +85,12 @@ const TYPES_EVENEMENT = ["Festival", "Mariage", "Fête de quartier", "Salon", "M
 
 // ─── Helpers ──────────────────────────────────────────────────
 function normalize(s: string) {
-  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 function joursRestants(iso: string): number {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
@@ -495,10 +500,13 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
     const q = normalize(query);
     const bMin = budgetMin ? parseInt(budgetMin) : 0;
     const bMax = budgetMax ? parseInt(budgetMax) : Infinity;
+    const budgetFilterActive = bMin > 0 || bMax < Infinity;
     return initialEvenements.filter((ev) => {
       if (q && !normalize(`${ev.titre} ${ev.ville} ${ev.type} ${ev.region}`).includes(q)) return false;
       if (region !== "Toutes les régions" && ev.region !== region) return false;
       if (typesChecked.length > 0 && !typesChecked.includes(ev.type)) return false;
+      // Un budget non communiqué (0) ne peut pas être évalué par un filtre de prix actif
+      if (budgetFilterActive && ev.budgetMax === 0) return false;
       if (bMin && ev.budgetMax < bMin) return false;
       if (bMax < Infinity && ev.budgetMin > bMax) return false;
       if (dateFrom && ev.dateISO < dateFrom) return false;

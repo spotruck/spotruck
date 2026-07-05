@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   Star, CheckCircle, XCircle, MessageSquare, User,
   Lightbulb, ChevronDown, X, Filter, Send, AlertTriangle,
-  Paperclip, FileText, Image as ImageIcon, ExternalLink, MapPin,
+  Paperclip, FileText, Image as ImageIcon, ExternalLink, MapPin, Eye,
 } from "lucide-react";
 import { genererContratPDF, buildContratDataFromEvenement, type EvenementForContrat } from "@/lib/contrat/genererContratPDF";
 import { getCoordonneesVille } from "@/lib/geo";
@@ -192,6 +192,55 @@ Cordialement,
 ${orgNom}`;
 }
 
+// ─── Modale VOIR LA CANDIDATURE (message + pièces jointes) ────
+function ModaleVoirCandidature({ c, onClose }: { c: Candidature; onClose: () => void }) {
+  return (
+    <div style={{ position:"fixed", inset:0, backgroundColor:"rgba(0,0,0,0.55)", zIndex:3000, display:"flex", alignItems:"center", justifyContent:"center", padding:"2rem" }} onClick={onClose}>
+      <div style={{ backgroundColor:S.cream, maxWidth:600, width:"100%", maxHeight:"90vh", overflowY:"auto", padding:"2.5rem" }} onClick={e => e.stopPropagation()}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"1.75rem" }}>
+          <div>
+            <p style={{ fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.2em", color:S.terra, fontWeight:700, marginBottom:"0.3rem" }}>CANDIDATURE</p>
+            <h2 style={{ fontFamily:S.serif, fontSize:"1.5rem", fontWeight:800, color:S.brown }}>{c.truck}</h2>
+            <p style={{ fontFamily:S.sans, fontSize:"0.72rem", color:S.muted, marginTop:"0.2rem" }}>Pour : {c.evenementTitre}{c.evenementVille ? ` — ${c.evenementVille}` : ""}</p>
+          </div>
+          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer" }}><X size={20} color={S.muted} /></button>
+        </div>
+
+        <div style={{ marginBottom:"1.75rem" }}>
+          <p style={{ fontFamily:S.sans, fontSize:"0.6rem", letterSpacing:"0.2em", color:S.muted, marginBottom:"0.75rem" }}>MESSAGE DU FOODTRUCKER</p>
+          <p style={{ fontFamily:S.sans, fontSize:"0.85rem", fontWeight:300, color:S.brown, lineHeight:1.8, backgroundColor:S.card, padding:"1.25rem", whiteSpace:"pre-wrap" }}>
+            {c.message ? c.message : "Aucun message de candidature."}
+          </p>
+        </div>
+
+        {c.piecesJointes.length > 0 && (
+          <div style={{ marginBottom:"1rem" }}>
+            <p style={{ fontFamily:S.sans, fontSize:"0.6rem", letterSpacing:"0.2em", color:S.muted, marginBottom:"0.75rem" }}>PIÈCES JOINTES</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:"0.4rem" }}>
+              {c.piecesJointes.map((f, i) => (
+                <a key={i} href={f.url} target="_blank" rel="noreferrer" download style={{ display:"flex", alignItems:"center", gap:"0.6rem", padding:"0.6rem 0.875rem", backgroundColor:S.card, border:`1px solid ${S.border}`, textDecoration:"none" }}>
+                  {f.type === "application/pdf"
+                    ? <FileText size={14} color="#C0392B" strokeWidth={1.5} />
+                    : <ImageIcon size={14} color="#2E6DA4" strokeWidth={1.5} />
+                  }
+                  <span style={{ fontFamily:S.sans, fontSize:"0.78rem", color:S.brown, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.nom}</span>
+                  <span style={{ fontFamily:S.sans, fontSize:"0.6rem", letterSpacing:"0.1em", color:S.terra }}>TÉLÉCHARGER</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display:"flex", justifyContent:"flex-end", paddingTop:"1rem", borderTop:`1px solid ${S.border}` }}>
+          <button onClick={onClose} style={{ backgroundColor:"transparent", color:S.muted, border:`1px solid ${S.border}`, padding:"0.75rem 2rem", fontFamily:S.sans, fontSize:"0.65rem", letterSpacing:"0.2em", cursor:"pointer" }}>
+            FERMER
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────
 export default function CandidaturesClient({ initialCandidatures, organisateurNom, organisateurSiret, organisateurAdresse }: Props) {
   const router = useRouter();
@@ -199,6 +248,7 @@ export default function CandidaturesClient({ initialCandidatures, organisateurNo
   const [filtre, setFiltre] = useState<"Toutes"|"EN ATTENTE"|"RETENU"|"REFUSÉ">("Toutes");
   const [tri, setTri]       = useState<"score"|"note"|"date"|"plan">("score");
   const [modale, setModale] = useState<Candidature|null>(null);
+  const [voirCandTarget, setVoirCandTarget] = useState<Candidature|null>(null);
   const [showTri, setShowTri] = useState(false);
   const [toast, setToast]   = useState("");
   const [saving, setSaving] = useState(false);
@@ -418,6 +468,9 @@ export default function CandidaturesClient({ initialCandidatures, organisateurNo
                     <div style={{ display:"flex", gap:"0.35rem", flexWrap:"wrap", justifyContent:"flex-end" }}>
                       <button onClick={() => setModale(c)} style={{ backgroundColor:"transparent", color:S.terra, border:`1px solid ${S.terra}`, padding:"0.4rem 0.75rem", fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.12em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.3rem" }}>
                         <User size={11} strokeWidth={1.5} /> PROFIL
+                      </button>
+                      <button onClick={() => setVoirCandTarget(c)} style={{ backgroundColor:"transparent", color:S.muted, border:`1px solid ${S.border}`, padding:"0.4rem 0.75rem", fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.12em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.3rem" }}>
+                        <Eye size={11} strokeWidth={1.5} /> VOIR LA CANDIDATURE
                       </button>
                       <button onClick={() => voirContrat(c)} style={{ backgroundColor:"transparent", color:S.muted, border:`1px solid ${S.border}`, padding:"0.4rem 0.75rem", fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.12em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.3rem" }}>
                         <FileText size={11} strokeWidth={1.5} /> VOIR LE CONTRAT
@@ -747,6 +800,8 @@ export default function CandidaturesClient({ initialCandidatures, organisateurNo
           <CheckCircle size={16} strokeWidth={2} /> {toast}
         </div>
       )}
+
+      {voirCandTarget && <ModaleVoirCandidature c={voirCandTarget} onClose={() => setVoirCandTarget(null)} />}
     </main>
   );
 }

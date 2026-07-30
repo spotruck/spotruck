@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import OpportunitesClient from "./OpportunitesClient";
+import { getRegionVille } from "@/lib/geo";
 
 export default async function OpportunitesPage() {
   const supabase = await createClient();
@@ -141,7 +142,7 @@ export default async function OpportunitesPage() {
       heures: heuresLabel,
       adresse: ev.lieu || "",
       ville: ev.ville || "",
-      region: ev.region || "",
+      region: ev.region || getRegionVille(ev.ville) || "",
       type: ev.type || "Autre",
       visiteurs: ev.visiteurs_attendus || 0,
       trucks: ev.nombre_trucks || 1,

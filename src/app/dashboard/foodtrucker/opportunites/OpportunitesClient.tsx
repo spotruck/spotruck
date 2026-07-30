@@ -477,8 +477,6 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
   const [query, setQuery]               = useState("");
   const [region, setRegion]             = useState("Toutes les régions");
   const [typesChecked, setTypesChecked] = useState<string[]>([]);
-  const [budgetMin, setBudgetMin]       = useState("");
-  const [budgetMax, setBudgetMax]       = useState("");
   const [dateFrom, setDateFrom]         = useState("");
   const [dateTo, setDateTo]             = useState("");
   const [offre, setOffre]               = useState<"Tous" | "DROIT DE PLACE" | "PRIVATISATION">("Tous");
@@ -496,33 +494,26 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
   }, []);
 
   const anyFilter = region !== "Toutes les régions" || typesChecked.length > 0 ||
-    budgetMin !== "" || budgetMax !== "" || dateFrom !== "" || dateTo !== "" || offre !== "Tous" || query !== "";
+    dateFrom !== "" || dateTo !== "" || offre !== "Tous" || query !== "";
 
   const reset = useCallback(() => {
     setQuery(""); setRegion("Toutes les régions"); setTypesChecked([]);
-    setBudgetMin(""); setBudgetMax(""); setDateFrom(""); setDateTo(""); setOffre("Tous");
+    setDateFrom(""); setDateTo(""); setOffre("Tous");
   }, []);
 
   const filtered = useMemo(() => {
     const q = normalize(query);
-    const bMin = budgetMin ? parseInt(budgetMin) : 0;
-    const bMax = budgetMax ? parseInt(budgetMax) : Infinity;
-    const budgetFilterActive = bMin > 0 || bMax < Infinity;
     return initialEvenements.filter((ev) => {
       if (q && !normalize(`${ev.titre} ${ev.ville} ${ev.type} ${ev.region} ${getRegionVille(ev.ville) ?? ""}`).includes(q)) return false;
       const regionEffective = ev.region || getRegionVille(ev.ville) || "";
       if (region !== "Toutes les régions" && regionEffective !== region) return false;
       if (typesChecked.length > 0 && !typesChecked.some(t => normalize(ev.type) === normalize(t))) return false;
-      // Un budget non communiqué (0) ne peut pas être évalué par un filtre de prix actif
-      if (budgetFilterActive && ev.budgetMax === 0) return false;
-      if (bMin && ev.budgetMax < bMin) return false;
-      if (bMax < Infinity && ev.budgetMin > bMax) return false;
       if (dateFrom && ev.dateISO < dateFrom) return false;
       if (dateTo   && ev.dateISO > dateTo)   return false;
       if (offre !== "Tous" && ev.offre !== offre) return false;
       return true;
     });
-  }, [query, region, typesChecked, budgetMin, budgetMax, dateFrom, dateTo, offre, initialEvenements]);
+  }, [query, region, typesChecked, dateFrom, dateTo, offre, initialEvenements]);
 
   function toggleSave(id: number) {
     setSaved(prev => {
@@ -629,18 +620,6 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
                   <span style={{ fontFamily: S.sans, fontSize: "0.72rem", color: S.brown, fontWeight: 300 }}>{t}</span>
                 </label>
               ))}
-            </div>
-
-            <div style={{ marginBottom: "1.5rem" }}>
-              <label style={{ fontFamily: S.sans, fontSize: "0.6rem", letterSpacing: "0.2em", color: S.muted, display: "block", marginBottom: "0.5rem" }}>BUDGET (€)</label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
-                {[{ label: "MIN", val: budgetMin, set: setBudgetMin }, { label: "MAX", val: budgetMax, set: setBudgetMax }].map(({ label, val, set }) => (
-                  <div key={label}>
-                    <span style={{ fontFamily: S.sans, fontSize: "0.58rem", color: S.muted, display: "block", marginBottom: "0.25rem", letterSpacing: "0.1em" }}>{label}</span>
-                    <input type="number" min={0} placeholder={label === "MIN" ? "0" : "∞"} value={val} onChange={e => set(e.target.value)} style={selectStyle} />
-                  </div>
-                ))}
-              </div>
             </div>
 
             <div style={{ marginBottom: "1.5rem" }}>

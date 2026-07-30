@@ -81,7 +81,14 @@ const REGIONS = [
   "Pays de la Loire", "Normandie", "Bretagne", "Bourgogne-Franche-Comté",
   "Centre-Val de Loire", "Corse",
 ];
-const TYPES_EVENEMENT = ["Festival", "Mariage", "Fête de quartier", "Salon", "Marché", "Séminaire", "Autre"];
+const TYPES_EVENEMENT = [
+  "Festival",
+  "Emplacement",
+  "Événement public",
+  "Marché",
+  "Événement privé",
+  "Séminaire"
+];
 
 // ─── Helpers ──────────────────────────────────────────────────
 function normalize(s: string) {
@@ -505,7 +512,7 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
       if (q && !normalize(`${ev.titre} ${ev.ville} ${ev.type} ${ev.region} ${getRegionVille(ev.ville) ?? ""}`).includes(q)) return false;
       const regionEffective = ev.region || getRegionVille(ev.ville) || "";
       if (region !== "Toutes les régions" && regionEffective !== region) return false;
-      if (typesChecked.length > 0 && !typesChecked.includes(ev.type)) return false;
+      if (typesChecked.length > 0 && !typesChecked.some(t => normalize(ev.type) === normalize(t))) return false;
       // Un budget non communiqué (0) ne peut pas être évalué par un filtre de prix actif
       if (budgetFilterActive && ev.budgetMax === 0) return false;
       if (bMin && ev.budgetMax < bMin) return false;

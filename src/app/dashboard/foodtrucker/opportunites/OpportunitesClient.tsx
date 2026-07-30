@@ -503,7 +503,8 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
     const budgetFilterActive = bMin > 0 || bMax < Infinity;
     return initialEvenements.filter((ev) => {
       if (q && !normalize(`${ev.titre} ${ev.ville} ${ev.type} ${ev.region} ${getRegionVille(ev.ville) ?? ""}`).includes(q)) return false;
-      if (region !== "Toutes les régions" && ev.region !== region) return false;
+      const regionEffective = ev.region || getRegionVille(ev.ville) || "";
+      if (region !== "Toutes les ru00e9gions" && regionEffective !== region) return false;
       if (typesChecked.length > 0 && !typesChecked.includes(ev.type)) return false;
       // Un budget non communiqué (0) ne peut pas être évalué par un filtre de prix actif
       if (budgetFilterActive && ev.budgetMax === 0) return false;

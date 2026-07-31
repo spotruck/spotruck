@@ -12,37 +12,10 @@ export function createClient() {
     throw new Error('Les variables d\'environnement Supabase ne sont pas configurées');
   }
 
-  return createBrowserClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return document.cookie.split('; ').map(cookie => {
-          const [name, ...rest] = cookie.split('=');
-          return { name, value: rest.join('=') };
-        });
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => {
-          let cookie = `${name}=${value}`;
-
-          if (options?.maxAge) {
-            cookie += `; max-age=${options.maxAge}`;
-          }
-          if (options?.path) {
-            cookie += `; path=${options.path}`;
-          }
-          if (options?.domain) {
-            cookie += `; domain=${options.domain}`;
-          }
-          if (options?.sameSite) {
-            cookie += `; samesite=${options.sameSite}`;
-          }
-          if (options?.secure) {
-            cookie += '; secure';
-          }
-
-          document.cookie = cookie;
-        });
-      },
-    },
-  });
+  // Ne pas fournir d'implémentation `cookies` custom : createBrowserClient gère
+  // déjà document.cookie correctement (encodage, chunking, expiration maxAge=0
+  // pour la rotation des refresh tokens). Une implémentation maison ici avait
+  // introduit un bug (maxAge: 0 traité comme absent) qui cassait la persistance
+  // de session et déconnectait l'utilisateur après un refresh de token.
+  return createBrowserClient(supabaseUrl, supabaseAnonKey);
 }

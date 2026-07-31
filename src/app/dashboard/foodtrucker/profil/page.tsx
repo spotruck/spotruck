@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import ProfilClient from "./ProfilClient";
+import { DOC_TYPE_MAP, type UploadedDoc } from "./DocumentUpload";
+import type { Photo } from "./PhotoUpload";
 
 export default async function ProfilPage() {
   const supabase = await createClient();
@@ -18,6 +20,33 @@ export default async function ProfilPage() {
     .select('*')
     .eq('id', user.id)
     .single();
+
+  // Récupérer les documents réglementaires déjà déposés
+  const { data: documentsRows } = await supabase
+    .from('documents')
+    .select('type, nom_fichier, url, created_at')
+    .eq('foodtrucker_id', user.id);
+
+  const typeToKey = Object.fromEntries(Object.entries(DOC_TYPE_MAP).map(([k, v]) => [v, k]));
+  const initialDocuments: Record<string, UploadedDoc> = {};
+  for (const row of documentsRows ?? []) {
+    const key = typeToKey[row.type];
+    if (!key || !row.url) continue;
+    initialDocuments[key] = {
+      name: row.nom_fichier || 'document.pdf',
+      size: 0,
+      uploadedAt: row.created_at,
+      url: row.url,
+    };
+  }
+
+  // Photos : la photo principale du truck en premier, puis les photos de plats
+  const initialPhotos: Photo[] = [
+    ...(foodtrucker?.photo_truck_url
+      ? [{ id: foodtrucker.photo_truck_url, url: foodtrucker.photo_truck_url, name: 'Photo du truck' }]
+      : []),
+    ...((foodtrucker?.photos_plats ?? []) as string[]).map((url: string) => ({ id: url, url, name: 'Photo' })),
+  ];
 
   // Préparer les données initiales
   const initialData = {
@@ -37,6 +66,8 @@ export default async function ProfilPage() {
     amperage: foodtrucker?.amperage?.toString() || '',
     alimentation: '',
     plan: foodtrucker?.plan || 'free',
+    photos: initialPhotos,
+    documents: initialDocuments,
   };
 
   // Préparer les données pour la sidebar

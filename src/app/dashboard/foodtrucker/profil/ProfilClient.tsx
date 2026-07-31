@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
 import { Save, CheckCircle } from "lucide-react";
-import PhotoUpload from "./PhotoUpload";
+import PhotoUpload, { type Photo } from "./PhotoUpload";
 import CuisineSelect from "./CuisineSelect";
 import DocumentUpload, { type UploadedDoc, type DocMeta } from "./DocumentUpload";
 import { createClient } from "@/lib/supabase/client";
@@ -35,6 +35,8 @@ interface ProfilData {
   amperage: string;
   alimentation: string;
   plan: string;
+  photos: Photo[];
+  documents: Record<string, UploadedDoc>;
 }
 
 // ─── Helpers UI ───────────────────────────────────────────────
@@ -104,8 +106,11 @@ function ProfilClientInner({ initialData, userId, userData }: { initialData: Pro
   const [amperage,     setAmperage]     = useState(initialData.amperage);
   const [alimentation, setAlimentation] = useState(initialData.alimentation);
 
+  // Photos
+  const [photos, setPhotos] = useState<Photo[]>(initialData.photos);
+
   // Documents
-  const [docState, setDocState] = useState<Record<string, UploadedDoc>>({});
+  const [docState, setDocState] = useState<Record<string, UploadedDoc>>(initialData.documents);
   const [docErrors, setDocErrors] = useState<Record<string, string>>({});
 
   // ── Deep-link depuis les notifications (?doc=kbis) ──
@@ -144,7 +149,7 @@ function ProfilClientInner({ initialData, userId, userData }: { initialData: Pro
       const supabase = createClient();
 
       // Mettre à jour les données dans Supabase
-      const { error: updateError } = await supabase
+      const { data: updated, error: updateError } = await supabase
         .from('foodtruckers')
         .update({
           nom_truck: nom,
@@ -161,12 +166,19 @@ function ProfilClientInner({ initialData, userId, userData }: { initialData: Pro
           consommation_electrique: consommation ? parseFloat(consommation) : null,
           type_prise: typePrise || null,
           amperage: amperage ? parseInt(amperage) : null,
+          photo_truck_url: photos[0]?.url ?? null,
+          photos_plats: photos.slice(1).map(p => p.url),
           updated_at: new Date().toISOString(),
         })
-        .eq('id', userId);
+        .eq('id', userId)
+        .select('id')
+        .single();
 
       if (updateError) {
         throw updateError;
+      }
+      if (!updated) {
+        throw new Error('Votre session a peut-être expiré : le profil n\'a pas été mis à jour. Reconnectez-vous et réessayez.');
       }
 
       // Feedback bouton
@@ -217,7 +229,7 @@ function ProfilClientInner({ initialData, userId, userData }: { initialData: Pro
         {/* ── 1. Photos ── */}
         <section style={{ marginBottom: "3rem" }}>
           <SectionHeader title="Photos du truck" />
-          <PhotoUpload />
+          <PhotoUpload userId={userId} photos={photos} onChange={setPhotos} />
         </section>
 
         {/* ── 2. Informations générales ── */}
@@ -298,6 +310,7 @@ function ProfilClientInner({ initialData, userId, userData }: { initialData: Pro
             PDF uniquement — max 10 Mo par document. Les documents expirant dans moins de 30 jours sont signalés.
           </p>
           <DocumentUpload
+            userId={userId}
             docs={docState}
             errors={docErrors}
             onChange={handleDocChange}

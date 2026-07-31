@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { ImagePlus, X, AlertCircle } from "lucide-react";
+import { ImagePlus, X, AlertCircle, Loader2 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 const S = {
   cream: "#F2EDE4", brown: "#2C1810", terra: "#C4622D",
@@ -13,45 +14,64 @@ const MAX = 15;
 const MAX_MB = 25;
 const ACCEPT = ["image/jpeg", "image/png", "image/webp"];
 
-interface Photo { id: string; url: string; name: string; }
+export interface Photo { id: string; url: string; name: string; }
 
-export default function PhotoUpload() {
-  const [photos, setPhotos] = useState<Photo[]>([]);
+interface Props {
+  userId: string;
+  photos: Photo[];
+  onChange: (photos: Photo[]) => void;
+}
+
+export default function PhotoUpload({ userId, photos, onChange }: Props) {
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const processFiles = useCallback((files: FileList | null) => {
-    if (!files) return;
+    if (!files || files.length === 0) return;
     setError("");
     const remaining = MAX - photos.length;
-    const toAdd = Array.from(files).slice(0, remaining);
-
-    toAdd.forEach((file) => {
-      if (!ACCEPT.includes(file.type)) {
-        setError("Format non supporté. Utilisez JPG, PNG ou WEBP.");
-        return;
-      }
-      if (file.size > MAX_MB * 1024 * 1024) {
-        setError(`"${file.name}" dépasse ${MAX_MB} Mo.`);
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setPhotos((prev) => {
-          if (prev.length >= MAX) return prev;
-          return [...prev, { id: `${Date.now()}-${Math.random()}`, url: e.target?.result as string, name: file.name }];
-        });
-      };
-      reader.readAsDataURL(file);
-    });
+    const candidates = Array.from(files).slice(0, remaining);
 
     if (files.length > remaining) {
       setError(`Seulement ${remaining} photo${remaining > 1 ? "s" : ""} ajoutée${remaining > 1 ? "s" : ""} (maximum ${MAX} atteint).`);
     }
-  }, [photos.length]);
 
-  const remove = (id: string) => setPhotos((p) => p.filter((ph) => ph.id !== id));
+    const valid = candidates.filter((file) => {
+      if (!ACCEPT.includes(file.type)) {
+        setError("Format non supporté. Utilisez JPG, PNG ou WEBP.");
+        return false;
+      }
+      if (file.size > MAX_MB * 1024 * 1024) {
+        setError(`"${file.name}" dépasse ${MAX_MB} Mo.`);
+        return false;
+      }
+      return true;
+    });
+    if (valid.length === 0) return;
+
+    setUploading(true);
+    (async () => {
+      const supabase = createClient();
+      const uploaded: Photo[] = [];
+      for (const file of valid) {
+        const ext = file.name.split(".").pop() || "jpg";
+        const path = `${userId}/photos/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error: uploadError } = await supabase.storage.from("spotruck-uploads").upload(path, file);
+        if (uploadError) {
+          setError(`Échec de l'envoi de "${file.name}".`);
+          continue;
+        }
+        const { data: pub } = supabase.storage.from("spotruck-uploads").getPublicUrl(path);
+        uploaded.push({ id: path, url: pub.publicUrl, name: file.name });
+      }
+      if (uploaded.length > 0) onChange([...photos, ...uploaded]);
+      setUploading(false);
+    })();
+  }, [photos, userId, onChange]);
+
+  const remove = (id: string) => onChange(photos.filter((ph) => ph.id !== id));
   const full = photos.length >= MAX;
 
   return (
@@ -103,7 +123,7 @@ export default function PhotoUpload() {
 
       {/* Zone de dépôt */}
       <div
-        onClick={() => !full && inputRef.current?.click()}
+        onClick={() => !full && !uploading && inputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); if (!full) setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => { e.preventDefault(); setDragging(false); processFiles(e.dataTransfer.files); }}
@@ -112,14 +132,21 @@ export default function PhotoUpload() {
           backgroundColor: dragging ? "rgba(196,98,45,0.06)" : full ? S.card : "transparent",
           padding: "2.5rem",
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          gap: "0.75rem", cursor: full ? "not-allowed" : "pointer",
+          gap: "0.75rem", cursor: full || uploading ? "not-allowed" : "pointer",
           opacity: full ? 0.6 : 1,
           transition: "background-color 0.15s",
         }}
       >
-        <ImagePlus size={28} color={full ? S.muted : S.terra} strokeWidth={1.5} />
+        {uploading
+          ? <Loader2 size={28} color={S.terra} strokeWidth={1.5} className="spin" />
+          : <ImagePlus size={28} color={full ? S.muted : S.terra} strokeWidth={1.5} />
+        }
         <div style={{ textAlign: "center" }}>
-          {full ? (
+          {uploading ? (
+            <p style={{ fontFamily: S.sans, fontSize: "0.75rem", letterSpacing: "0.1em", color: S.terra, fontWeight: 500 }}>
+              ENVOI EN COURS…
+            </p>
+          ) : full ? (
             <p style={{ fontFamily: S.sans, fontSize: "0.75rem", letterSpacing: "0.1em", color: S.muted, fontWeight: 500 }}>
               MAXIMUM ATTEINT ({MAX}/{MAX})
             </p>
@@ -162,8 +189,9 @@ export default function PhotoUpload() {
         accept={ACCEPT.join(",")}
         multiple
         style={{ display: "none" }}
-        onChange={(e) => processFiles(e.target.files)}
+        onChange={(e) => { processFiles(e.target.files); e.target.value = ""; }}
       />
+      <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 }

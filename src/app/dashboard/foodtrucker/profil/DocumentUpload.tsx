@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef } from "react";
-import { CheckCircle, XCircle, Upload, Eye, RefreshCw, AlertTriangle } from "lucide-react";
+import { useRef, useState } from "react";
+import { CheckCircle, XCircle, Upload, Eye, RefreshCw, AlertTriangle, Loader2 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 const S = {
   brown: "#2C1810", terra: "#C4622D",
@@ -17,16 +18,15 @@ interface DocDef {
   expiresAt?: Date;
 }
 
-// Ce qui est persisté en localStorage (sans data URL — trop lourd)
 export interface DocMeta {
   name: string;
   size: number;
   uploadedAt: string; // ISO string
 }
 
-// État en mémoire d'un doc uploadé (data URL disponible seulement en session)
+// Document uploadé dans Supabase Storage, référencé dans la table `documents`
 export interface UploadedDoc extends DocMeta {
-  url: string; // "" si restauré depuis localStorage
+  url: string; // URL publique Supabase Storage
 }
 
 export const DOC_DEFS: DocDef[] = [
@@ -38,7 +38,18 @@ export const DOC_DEFS: DocDef[] = [
   { key: "hygiene", label: "Contrôle hygiène",      expiresAt: new Date("2025-09-15") },
 ];
 
+// Clé UI (docs/DOC_DEFS) <-> valeur `type` dans la table `documents`
+export const DOC_TYPE_MAP: Record<string, string> = {
+  kbis: "kbis",
+  haccp: "haccp",
+  rc_pro: "rc_pro",
+  gaz: "conformite_gaz",
+  elec: "conformite_electrique",
+  hygiene: "controle_hygiene",
+};
+
 interface Props {
+  userId: string;
   docs: Record<string, UploadedDoc>;
   errors: Record<string, string>;
   onChange: (key: string, doc: UploadedDoc | null) => void;
@@ -47,6 +58,7 @@ interface Props {
 }
 
 function fmtSize(bytes: number) {
+  if (!bytes) return null;
   return bytes >= 1_000_000 ? `${(bytes / 1_000_000).toFixed(1)} Mo` : `${Math.round(bytes / 1_024)} Ko`;
 }
 
@@ -64,25 +76,50 @@ function expired(d?: Date) {
   return d ? d.getTime() < Date.now() : false;
 }
 
-export default function DocumentUpload({ docs, errors, onChange, onError, highlightKey }: Props) {
+export default function DocumentUpload({ userId, docs, errors, onChange, onError, highlightKey }: Props) {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
 
-  function handleFile(key: string, file: File | null) {
+  async function handleFile(key: string, file: File | null) {
     if (!file) return;
     onError(key, "");
     if (file.type !== "application/pdf") { onError(key, "Format invalide — PDF uniquement."); return; }
     if (file.size > MAX_MB * 1024 * 1024) { onError(key, `Fichier trop lourd (max ${MAX_MB} Mo).`); return; }
 
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      onChange(key, {
-        name: file.name,
-        size: file.size,
-        uploadedAt: new Date().toISOString(),
-        url: ev.target?.result as string,
-      });
-    };
-    reader.readAsDataURL(file);
+    setUploadingKey(key);
+    const supabase = createClient();
+    const path = `${userId}/documents/${key}/${Date.now()}-${file.name}`;
+
+    const { error: uploadError } = await supabase.storage.from("spotruck-uploads").upload(path, file);
+    if (uploadError) {
+      onError(key, "Échec de l'envoi du document.");
+      setUploadingKey(null);
+      return;
+    }
+    const { data: pub } = supabase.storage.from("spotruck-uploads").getPublicUrl(path);
+
+    const dbType = DOC_TYPE_MAP[key];
+    const { data: existing } = await supabase
+      .from("documents")
+      .select("id")
+      .eq("foodtrucker_id", userId)
+      .eq("type", dbType)
+      .maybeSingle();
+
+    const payload = { foodtrucker_id: userId, type: dbType, nom_fichier: file.name, url: pub.publicUrl };
+    const { error: dbError } = existing
+      ? await supabase.from("documents").update(payload).eq("id", existing.id)
+      : await supabase.from("documents").insert(payload);
+
+    setUploadingKey(null);
+    if (dbError) { onError(key, "Échec de l'enregistrement du document."); return; }
+
+    onChange(key, {
+      name: file.name,
+      size: file.size,
+      uploadedAt: new Date().toISOString(),
+      url: pub.publicUrl,
+    });
   }
 
   return (
@@ -100,6 +137,8 @@ export default function DocumentUpload({ docs, errors, onChange, onError, highli
           50%      { box-shadow: inset 0 0 0 2px transparent; }
         }
         .doc-highlight { animation: pulseHighlight 1s ease-in-out 3; }
+        .doc-spin { animation: docSpin 1s linear infinite; }
+        @keyframes docSpin { to { transform: rotate(360deg); } }
       `}</style>
 
       {DOC_DEFS.map((doc, i) => {
@@ -148,7 +187,9 @@ export default function DocumentUpload({ docs, errors, onChange, onError, highli
                 {uploaded ? (
                   <>
                     <p style={{ fontFamily: S.sans, fontSize: "0.72rem", color: S.brown, marginBottom: "0.15rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>{uploaded.name}</p>
-                    <p style={{ fontFamily: S.sans, fontSize: "0.65rem", fontWeight: 300, color: S.muted }}>{fmtDate(uploaded.uploadedAt)} · {fmtSize(uploaded.size)}</p>
+                    <p style={{ fontFamily: S.sans, fontSize: "0.65rem", fontWeight: 300, color: S.muted }}>
+                      {fmtDate(uploaded.uploadedAt)}{fmtSize(uploaded.size) ? ` · ${fmtSize(uploaded.size)}` : ""}
+                    </p>
                   </>
                 ) : (
                   <span style={{ fontFamily: S.sans, fontSize: "0.72rem", fontWeight: 300, color: S.muted }}>—</span>
@@ -157,14 +198,15 @@ export default function DocumentUpload({ docs, errors, onChange, onError, highli
 
               {/* Actions */}
               <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-                {uploaded ? (
+                {uploadingKey === doc.key ? (
+                  <span style={{ display: "flex", alignItems: "center", gap: "0.35rem", color: S.terra, fontFamily: S.sans, fontSize: "0.6rem", letterSpacing: "0.15em" }}>
+                    <Loader2 size={13} strokeWidth={1.5} className="doc-spin" /> ENVOI…
+                  </span>
+                ) : uploaded ? (
                   <>
-                    {/* Voir — seulement si data URL disponible (session courante) */}
-                    {uploaded.url && (
-                      <a href={uploaded.url} target="_blank" rel="noreferrer" title="Voir" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, border: `1px solid ${S.border}`, color: S.muted, textDecoration: "none" }}>
-                        <Eye size={13} strokeWidth={1.5} />
-                      </a>
-                    )}
+                    <a href={uploaded.url} target="_blank" rel="noreferrer" title="Voir" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, border: `1px solid ${S.border}`, color: S.muted, textDecoration: "none" }}>
+                      <Eye size={13} strokeWidth={1.5} />
+                    </a>
                     <button onClick={() => inputRefs.current[doc.key]?.click()} style={{ display: "flex", alignItems: "center", gap: "0.3rem", border: `1px solid ${S.border}`, backgroundColor: "transparent", padding: "0.4rem 0.75rem", cursor: "pointer", fontFamily: S.sans, fontSize: "0.58rem", letterSpacing: "0.15em", color: S.muted }}>
                       <RefreshCw size={11} strokeWidth={1.5} /> REMPLACER
                     </button>

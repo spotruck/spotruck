@@ -1,15 +1,12 @@
 "use client";
-import dynamic from "next/dynamic";
-const OpportunitesMap = dynamic(() => import("./OpportunitesMap"), { ssr: false });
-
 import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
 import { createClient } from "@/lib/supabase/client";
-import { getCoordonneesVille, getRegionVille } from "@/lib/geo";
+import { getRegionVille } from "@/lib/geo";
 import {
   MapPin, Users, Euro, CalendarDays, SlidersHorizontal, ArrowRight, X,
   Search, CheckCircle, AlertCircle, RotateCcw, Bookmark, BookmarkCheck,
-  ExternalLink, Mail, Send, Copy, AlertTriangle, Clock, Map as MapIcon,
+  ExternalLink, Mail, Send, Copy, AlertTriangle, Clock,
   Paperclip, FileText, Image as ImageIcon,
 } from "lucide-react";
 
@@ -486,7 +483,6 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
   const [modalEvent, setModalEvent] = useState<Evenement | null>(null);
   const [toast, setToast]           = useState<{ msg: string; color: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [showMap, setShowMap]       = useState(false);
 
   // Hydration localStorage
   useEffect(() => {
@@ -725,29 +721,8 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
               </div>
             )}
 
-            {/* ── Bouton toggle carte ── */}
-            <div style={{ marginBottom: "1rem" }}>
-              <button onClick={() => setShowMap(v => !v)} style={{
-                display: "flex", alignItems: "center", gap: "0.5rem",
-                backgroundColor: showMap ? S.terra : "transparent",
-                color: showMap ? "#fff" : S.brown,
-                border: `1px solid ${showMap ? S.terra : S.border}`,
-                padding: "0.65rem 1.25rem", fontFamily: S.sans, fontSize: "0.62rem",
-                letterSpacing: "0.2em", cursor: "pointer",
-              }}>
-                <MapIcon size={13} strokeWidth={1.5} />
-                {showMap ? "MASQUER LA CARTE" : "VOIR LA CARTE"}
-              </button>
-            </div>
-
             {/* ── Cartes ── */}
             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-              {showMap && (
-                <OpportunitesMap
-                  evenements={filtered.map(ev => ({ id: ev.id, titre: ev.titre, ville: ev.ville, date: ev.date, budgetLabel: ev.budgetLabel, coords: getCoordonneesVille(ev.ville) }))}
-                  onVoirDetail={(id) => { const ev = filtered.find(e => e.id === id); if(ev) setModalEvent(ev); }}
-                />
-              )}
               {filtered.map((ev) => {
                 const isSaved = saved.has(ev.id);
                 const isCandide = candide.has(ev.id);

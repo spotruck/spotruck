@@ -90,35 +90,17 @@ export default function DocumentUpload({ userId, docs, errors, onChange, onError
     const supabase = createClient();
     const path = `${userId}/documents/${key}/${Date.now()}-${file.name}`;
 
+    // Upload dans le Storage uniquement. La persistance en base se fait, comme
+    // pour la photo, via le bouton « Sauvegarder » qui écrit la colonne JSONB
+    // foodtruckers.documents. Pas d'écriture dans une table séparée ici.
     const { error: uploadError } = await supabase.storage.from("spotruck-uploads").upload(path, file);
+    setUploadingKey(null);
     if (uploadError) {
-      console.error(`[documents] Échec upload storage (${key}):`, uploadError.message, uploadError);
+      console.error(`[documents] Échec upload storage (${key}):`, uploadError.message);
       onError(key, "Échec de l'envoi du document.");
-      setUploadingKey(null);
       return;
     }
     const { data: pub } = supabase.storage.from("spotruck-uploads").getPublicUrl(path);
-
-    const dbType = DOC_TYPE_MAP[key];
-    const { data: existing } = await supabase
-      .from("documents")
-      .select("id")
-      .eq("foodtrucker_id", userId)
-      .eq("type", dbType)
-      .maybeSingle();
-
-    const payload = { foodtrucker_id: userId, type: dbType, nom_fichier: file.name, url: pub.publicUrl };
-    const { error: dbError } = existing
-      ? await supabase.from("documents").update(payload).eq("id", existing.id)
-      : await supabase.from("documents").insert(payload);
-
-    setUploadingKey(null);
-    if (dbError) {
-      console.error(`[documents] Échec enregistrement en base (${key}):`, dbError.message, dbError);
-      onError(key, "Échec de l'enregistrement du document.");
-      return;
-    }
-    console.log(`[documents] enregistré en base — ${dbType} → ${pub.publicUrl}`);
 
     onChange(key, {
       name: file.name,

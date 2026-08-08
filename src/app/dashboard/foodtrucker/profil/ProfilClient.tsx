@@ -168,6 +168,7 @@ function ProfilClientInner({ initialData, userId, userData }: { initialData: Pro
           amperage: amperage ? parseInt(amperage) : null,
           photo_truck_url: photos[0]?.url ?? null,
           photos_plats: photos.slice(1).map(p => p.url),
+          documents: docState,
           updated_at: new Date().toISOString(),
         })
         .eq('id', userId)
@@ -308,6 +309,7 @@ function ProfilClientInner({ initialData, userId, userData }: { initialData: Pro
           <SectionHeader title="Documents réglementaires" />
           <p style={{ fontFamily: S.sans, fontSize: "0.72rem", fontWeight: 300, color: S.muted, marginBottom: "1.25rem", lineHeight: 1.6 }}>
             PDF uniquement — max 10 Mo par document. Les documents expirant dans moins de 30 jours sont signalés.
+            {" "}Pensez à cliquer sur <strong>Sauvegarder</strong> pour enregistrer vos documents.
           </p>
           <DocumentUpload
             userId={userId}

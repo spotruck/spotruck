@@ -4,6 +4,11 @@ import ProfilClient from "./ProfilClient";
 import { DOC_TYPE_MAP, type UploadedDoc } from "./DocumentUpload";
 import type { Photo } from "./PhotoUpload";
 
+// Cette page dépend de la session (cookies) et des documents en base :
+// on force le rendu dynamique pour ne jamais servir une version mise en cache
+// (sinon les documents peuvent « disparaître » après reconnexion).
+export const dynamic = "force-dynamic";
+
 export default async function ProfilPage() {
   const supabase = await createClient();
 
@@ -22,23 +27,48 @@ export default async function ProfilPage() {
     .single();
 
   // Récupérer les documents réglementaires déjà déposés
-  const { data: documentsRows } = await supabase
+  const { data: documentsRows, error: documentsError } = await supabase
     .from('documents')
     .select('type, nom_fichier, url, created_at')
     .eq('foodtrucker_id', user.id);
 
+  // Logs serveur (visibles dans les logs de fonction Netlify) pour diagnostiquer
+  // une éventuelle disparition des documents après reconnexion.
+  if (documentsError) {
+    console.error('[profil] Erreur lecture documents:', documentsError.message, documentsError);
+  }
+  console.log(`[profil] user=${user.id} — documents lus en base: ${documentsRows?.length ?? 0}`);
+
   const typeToKey = Object.fromEntries(Object.entries(DOC_TYPE_MAP).map(([k, v]) => [v, k]));
   const initialDocuments: Record<string, UploadedDoc> = {};
-  for (const row of documentsRows ?? []) {
+
+  // On lit les URLs depuis la base ; la taille n'étant pas stockée en base,
+  // on la récupère depuis le Storage (Content-Length) en parallèle.
+  await Promise.all((documentsRows ?? []).map(async (row) => {
     const key = typeToKey[row.type];
-    if (!key || !row.url) continue;
+    if (!key || !row.url) {
+      console.warn(`[profil] document ignoré — type=${row.type} url=${row.url ? 'présente' : 'MANQUANTE'}`);
+      return;
+    }
+
+    let size = 0;
+    try {
+      const head = await fetch(row.url, { method: 'HEAD', cache: 'no-store' });
+      const len = head.headers.get('content-length');
+      if (len) size = parseInt(len, 10);
+    } catch (e) {
+      console.warn(`[profil] taille indisponible pour ${key}:`, e);
+    }
+
     initialDocuments[key] = {
       name: row.nom_fichier || 'document.pdf',
-      size: 0,
+      size,
       uploadedAt: row.created_at,
       url: row.url,
     };
-  }
+  }));
+
+  console.log('[profil] documents affichés:', Object.keys(initialDocuments));
 
   // Photos : la photo principale du truck en premier, puis les photos de plats
   const initialPhotos: Photo[] = [

@@ -15,7 +15,6 @@ const MAX_MB = 10;
 interface DocDef {
   key: string;
   label: string;
-  expiresAt?: Date;
 }
 
 export interface DocMeta {
@@ -30,12 +29,12 @@ export interface UploadedDoc extends DocMeta {
 }
 
 export const DOC_DEFS: DocDef[] = [
-  { key: "kbis",    label: "KBIS",                  expiresAt: new Date("2025-07-10") },
-  { key: "haccp",   label: "HACCP",                 expiresAt: new Date("2025-12-01") },
+  { key: "kbis",    label: "KBIS" },
+  { key: "haccp",   label: "HACCP" },
   { key: "rc_pro",  label: "RC Pro" },
-  { key: "gaz",     label: "Conformité gaz",        expiresAt: new Date("2025-06-20") },
+  { key: "gaz",     label: "Conformité gaz" },
   { key: "elec",    label: "Conformité électrique" },
-  { key: "hygiene", label: "Contrôle hygiène",      expiresAt: new Date("2025-09-15") },
+  { key: "hygiene", label: "Contrôle hygiène" },
 ];
 
 // Clé UI (docs/DOC_DEFS) <-> valeur `type` dans la table `documents`
@@ -66,15 +65,6 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function expiringSoon(d?: Date) {
-  if (!d) return false;
-  const diff = (d.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
-  return diff >= 0 && diff <= 30;
-}
-
-function expired(d?: Date) {
-  return d ? d.getTime() < Date.now() : false;
-}
 
 export default function DocumentUpload({ userId, docs, errors, onChange, onError, highlightKey }: Props) {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -131,8 +121,6 @@ export default function DocumentUpload({ userId, docs, errors, onChange, onError
 
       {DOC_DEFS.map((doc, i) => {
         const uploaded  = docs[doc.key];
-        const soon      = expiringSoon(doc.expiresAt);
-        const exp       = expired(doc.expiresAt);
         const err       = errors[doc.key];
         const isHighlit = highlightKey === doc.key;
 
@@ -147,19 +135,9 @@ export default function DocumentUpload({ userId, docs, errors, onChange, onError
                 backgroundColor: isHighlit ? "rgba(196,98,45,0.06)" : "transparent",
                 transition: "background-color 0.3s",
               }}>
-              {/* Nom + badges expiration */}
+              {/* Nom */}
               <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
                 <span style={{ fontFamily: S.sans, fontSize: "0.875rem", color: S.brown }}>{doc.label}</span>
-                {soon && !exp && (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem", backgroundColor: "rgba(196,98,45,0.12)", color: S.terra, padding: "0.2rem 0.5rem", fontFamily: S.sans, fontSize: "0.55rem", letterSpacing: "0.15em", fontWeight: 600 }}>
-                    <AlertTriangle size={10} strokeWidth={2} /> EXPIRE BIENTÔT
-                  </span>
-                )}
-                {exp && (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem", backgroundColor: "rgba(192,57,43,0.1)", color: "#C0392B", padding: "0.2rem 0.5rem", fontFamily: S.sans, fontSize: "0.55rem", letterSpacing: "0.15em", fontWeight: 600 }}>
-                    <AlertTriangle size={10} strokeWidth={2} /> EXPIRÉ
-                  </span>
-                )}
               </div>
 
               {/* Statut */}

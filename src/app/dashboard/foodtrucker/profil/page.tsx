@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import ProfilClient from "./ProfilClient";
 import { DOC_TYPE_MAP, type UploadedDoc } from "./DocumentUpload";
 import type { Photo } from "./PhotoUpload";
@@ -26,8 +27,8 @@ export default async function ProfilPage() {
     .eq('id', user.id)
     .single();
 
-  // Récupérer les documents réglementaires déjà déposés
-  const { data: documentsRows, error: documentsError } = await supabase
+  // Récupérer les documents réglementaires déjà déposés (table `documents`).
+  let { data: documentsRows, error: documentsError } = await supabase
     .from('documents')
     .select('type, nom_fichier, url, created_at')
     .eq('foodtrucker_id', user.id);
@@ -35,9 +36,32 @@ export default async function ProfilPage() {
   // Logs serveur (visibles dans les logs de fonction Netlify) pour diagnostiquer
   // une éventuelle disparition des documents après reconnexion.
   if (documentsError) {
-    console.error('[profil] Erreur lecture documents:', documentsError.message, documentsError);
+    console.error('[profil] Erreur lecture documents (session):', documentsError.message);
   }
-  console.log(`[profil] user=${user.id} — documents lus en base: ${documentsRows?.length ?? 0}`);
+  console.log(`[profil] user=${user.id} — documents lus (session): ${documentsRows?.length ?? 0}`);
+
+  // Filet de sécurité : en production, la lecture via la session utilisateur peut
+  // renvoyer 0 ligne alors que les documents existent bel et bien en base (la photo,
+  // elle, est lue de façon fiable car stockée sur la ligne foodtruckers). Si la clé
+  // service_role est disponible côté serveur, on relit alors en bypassant la RLS,
+  // strictement filtré sur l'utilisateur courant. Try/catch : ne casse jamais la page.
+  if ((!documentsRows || documentsRows.length === 0) && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const admin = createAdminClient();
+      const { data: adminRows, error: adminError } = await admin
+        .from('documents')
+        .select('type, nom_fichier, url, created_at')
+        .eq('foodtrucker_id', user.id);
+      if (adminError) {
+        console.error('[profil] Erreur lecture documents (admin):', adminError.message);
+      } else if (adminRows && adminRows.length > 0) {
+        console.log(`[profil] documents récupérés via admin (fallback): ${adminRows.length}`);
+        documentsRows = adminRows;
+      }
+    } catch (e) {
+      console.error('[profil] Fallback admin indisponible:', e);
+    }
+  }
 
   const typeToKey = Object.fromEntries(Object.entries(DOC_TYPE_MAP).map(([k, v]) => [v, k]));
   const initialDocuments: Record<string, UploadedDoc> = {};

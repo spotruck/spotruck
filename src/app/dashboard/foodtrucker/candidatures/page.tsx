@@ -62,12 +62,13 @@ export default async function CandidaturesPage() {
     ville: string | null; region: string | null; type: string;
     modele_financier: string | null; budget_truck: number | null;
     visiteurs_attendus: number | null; description: string | null;
+    organisateur_id: string;
   }[] = [];
 
   if (evenementIds.length > 0) {
     const { data } = await supabase
       .from("evenements")
-      .select("id, titre, date_debut, date_fin, ville, region, type, modele_financier, budget_truck, visiteurs_attendus, description")
+      .select("id, titre, date_debut, date_fin, ville, region, type, modele_financier, budget_truck, visiteurs_attendus, description, organisateur_id")
       .in("id", evenementIds);
     evenements = data || [];
   }
@@ -99,6 +100,8 @@ export default async function CandidaturesPage() {
       messages: r.message_reponse
         ? [{ id: `resp-${r.id}`, auteur: "organisateur" as const, texte: r.message_reponse, dateISO: r.updated_at || r.created_at }]
         : [],
+      evenementId: r.evenement_id,
+      organisateurId: evt?.organisateur_id || "",
     };
   });
 

@@ -485,7 +485,7 @@ export default function CandidaturesClient({ initialCandidatures, organisateurNo
                           <XCircle size={11} strokeWidth={1.5} /> REFUSER
                         </button>
                       )}
-                      <button onClick={() => router.push(`/dashboard/organisateur/messagerie?truck=${encodeURIComponent(c.truck)}&cuisine=${encodeURIComponent(c.cuisine)}`)} style={{ backgroundColor:"transparent", color:S.muted, border:`1px solid ${S.border}`, padding:"0.4rem 0.75rem", fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.12em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.3rem" }}>
+                      <button onClick={() => router.push(`/dashboard/organisateur/messagerie?foodtruckerId=${c.foodtruckerId}&evenementId=${c.evenementId}&truck=${encodeURIComponent(c.truck)}&cuisine=${encodeURIComponent(c.cuisine)}`)} style={{ backgroundColor:"transparent", color:S.muted, border:`1px solid ${S.border}`, padding:"0.4rem 0.75rem", fontFamily:S.sans, fontSize:"0.58rem", letterSpacing:"0.12em", cursor:"pointer", display:"flex", alignItems:"center", gap:"0.3rem" }}>
                         <MessageSquare size={11} strokeWidth={1.5} /> MSG
                       </button>
                     </div>
@@ -785,7 +785,7 @@ export default function CandidaturesClient({ initialCandidatures, organisateurNo
                   <CheckCircle size={14} strokeWidth={2} /> RETENIR CE TRUCK
                 </button>
               )}
-              <button onClick={() => router.push(`/dashboard/organisateur/messagerie?truck=${encodeURIComponent(modale.truck)}&cuisine=${encodeURIComponent(modale.cuisine)}`)}
+              <button onClick={() => router.push(`/dashboard/organisateur/messagerie?foodtruckerId=${modale.foodtruckerId}&evenementId=${modale.evenementId}&truck=${encodeURIComponent(modale.truck)}&cuisine=${encodeURIComponent(modale.cuisine)}`)}
                 style={{ flex:1, backgroundColor:"transparent", color:S.terra, border:`1px solid ${S.terra}`, padding:"0.875rem", fontFamily:S.sans, fontSize:"0.65rem", letterSpacing:"0.2em", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:"0.5rem" }}>
                 <MessageSquare size={14} strokeWidth={1.5} /> CONTACTER
               </button>

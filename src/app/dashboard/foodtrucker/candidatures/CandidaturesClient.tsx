@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
 import { createClient } from "@/lib/supabase/client";
+import { getOrCreateConversation, getMessages, sendMessage, subscribeToMessages, markAsRead, type MessageRow } from "@/lib/messages";
 import {
   Eye, MessageSquare, XCircle, CheckCircle, X, Send, AlertTriangle,
   Paperclip, FileText, Image as ImageIcon,
@@ -43,6 +44,8 @@ export interface Candidature {
   piecesJointes: { nom: string; url: string; type: string }[];
   documentsEnvoyes: string[];
   messages: Message[];
+  evenementId: string;
+  organisateurId: string;
 }
 
 interface Props {
@@ -226,16 +229,74 @@ function ModaleVoir({ c, onClose }: { c: Candidature; onClose: () => void }) {
 }
 
 // ─── Modale MESSAGES ─────────────────────────────────────────
-function ModaleMessages({ c, onSend, onClose }: { c: Candidature; onSend: (texte: string) => void; onClose: () => void }) {
+function ModaleMessages({ c, foodtruckerId, onClose }: { c: Candidature; foodtruckerId: string; onClose: () => void }) {
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [erreur, setErreur] = useState<string | null>(null);
   const [texte, setTexte] = useState("");
+  const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [c.messages]);
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe: (() => void) | null = null;
 
-  function handleSend() {
-    if (!texte.trim()) return;
-    onSend(texte.trim());
-    setTexte("");
+    async function init() {
+      setLoading(true);
+      try {
+        const conv = await getOrCreateConversation({
+          organisateurId: c.organisateurId,
+          foodtruckerId,
+          evenementId: c.evenementId,
+        });
+        if (cancelled) return;
+        setConversationId(conv.id);
+
+        const msgs = await getMessages(conv.id);
+        if (cancelled) return;
+        setMessages(msgs);
+
+        markAsRead(conv.id, foodtruckerId).catch(() => {});
+
+        unsubscribe = subscribeToMessages(conv.id, (m) => {
+          setMessages(prev => prev.some(x => x.id === m.id) ? prev : [...prev, m]);
+        });
+      } catch (err) {
+        console.error("Erreur chargement messagerie:", err);
+        setErreur((err as { message?: string })?.message ?? JSON.stringify(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    init();
+    return () => {
+      cancelled = true;
+      if (unsubscribe) unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [c.id]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  async function handleSend() {
+    if (!texte.trim() || !conversationId || sending) return;
+    setSending(true);
+    try {
+      const sent = await sendMessage({
+        conversationId,
+        senderId: foodtruckerId,
+        senderType: "foodtrucker",
+        content: texte.trim(),
+      });
+      setMessages(prev => prev.some(x => x.id === sent.id) ? prev : [...prev, sent]);
+      setTexte("");
+    } catch (err) {
+      console.error("Erreur envoi message:", err);
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -244,16 +305,18 @@ function ModaleMessages({ c, onSend, onClose }: { c: Candidature; onSend: (texte
 
       {/* Historique */}
       <div style={{ padding: "1.5rem 2rem", minHeight: 200, maxHeight: 320, overflowY: "auto", borderBottom: `1px solid ${S.border}` }}>
-        {c.messages.length === 0 ? (
-          <p style={{ fontFamily: S.sans, fontSize: "0.8rem", fontWeight: 300, color: S.muted, textAlign: "center", padding: "2rem 0" }}>Aucun message pour l'instant.</p>
+        {loading ? (
+          <p style={{ fontFamily: S.sans, fontSize: "0.8rem", fontWeight: 300, color: S.muted, textAlign: "center", padding: "2rem 0" }}>Chargement…</p>
+        ) : messages.length === 0 ? (
+          <p style={{ fontFamily: S.sans, fontSize: "0.8rem", fontWeight: 300, color: S.muted, textAlign: "center", padding: "2rem 0" }}>{erreur ? "Erreur : " + erreur : "Aucun message pour l'instant."}</p>
         ) : (
-          c.messages.map((m) => {
-            const isTruck = m.auteur === "truck";
+          messages.map((m) => {
+            const isTruck = m.sender_type === "foodtrucker";
             return (
               <div key={m.id} style={{ display: "flex", flexDirection: "column", alignItems: isTruck ? "flex-end" : "flex-start", marginBottom: "1rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.3rem" }}>
                   <span style={{ fontFamily: S.sans, fontSize: "0.6rem", letterSpacing: "0.1em", color: S.muted }}>
-                    {isTruck ? "Vous" : "Organisateur"} · {fmtDate(m.dateISO)} {fmtTime(m.dateISO)}
+                    {isTruck ? "Vous" : "Organisateur"} · {fmtDate(m.created_at)} {fmtTime(m.created_at)}
                   </span>
                 </div>
                 <div style={{
@@ -262,7 +325,7 @@ function ModaleMessages({ c, onSend, onClose }: { c: Candidature; onSend: (texte
                   padding: "0.75rem 1rem", maxWidth: "80%",
                   fontFamily: S.sans, fontSize: "0.82rem", fontWeight: 300, lineHeight: 1.6,
                 }}>
-                  {m.texte}
+                  {m.content}
                 </div>
               </div>
             );
@@ -287,10 +350,10 @@ function ModaleMessages({ c, onSend, onClose }: { c: Candidature; onSend: (texte
           </button>
           <button
             onClick={handleSend}
-            disabled={!texte.trim()}
-            style={{ backgroundColor: texte.trim() ? S.terra : S.muted, color: "#fff", border: "none", padding: "0.75rem 1.5rem", fontFamily: S.sans, fontSize: "0.65rem", letterSpacing: "0.2em", cursor: texte.trim() ? "pointer" : "not-allowed", display: "flex", alignItems: "center", gap: "0.4rem", transition: "background-color 0.15s" }}
+            disabled={!texte.trim() || sending || !conversationId}
+            style={{ backgroundColor: (texte.trim() && conversationId) ? S.terra : S.muted, color: "#fff", border: "none", padding: "0.75rem 1.5rem", fontFamily: S.sans, fontSize: "0.65rem", letterSpacing: "0.2em", cursor: (texte.trim() && conversationId) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", gap: "0.4rem", transition: "background-color 0.15s" }}
           >
-            <Send size={13} strokeWidth={1.5} /> ENVOYER
+            <Send size={13} strokeWidth={1.5} /> {sending ? "ENVOI…" : "ENVOYER"}
           </button>
         </div>
       </div>
@@ -394,18 +457,7 @@ function CandidaturesClientInner({ initialCandidatures, foodtruckerId }: Props) 
     setToast({ msg: "Candidature annulée", color: "#C0392B" });
   }, [modaleAnn, foodtruckerId]);
 
-  // ── Envoyer message (local à la session — pas de messagerie temps réel côté base) ──
-  const handleSendMessage = useCallback((texte: string) => {
-    if (!modaleMsg) return;
-    const newMsg: Message = { id: `m-${Date.now()}`, auteur: "truck", texte, dateISO: new Date().toISOString() };
-    setListe(prev => prev.map(c =>
-      c.id === modaleMsg.id ? { ...c, messages: [...c.messages, newMsg] } : c
-    ));
-    setModaleMsg(prev => prev ? { ...prev, messages: [...prev.messages, newMsg] } : null);
-    setToast({ msg: "Message envoyé", color: "#2C7A4B" });
-  }, [modaleMsg]);
-
-  return (
+    return (
     <>
       <main style={{ minHeight: "100vh", backgroundColor: S.cream, color: S.brown, display: "grid", gridTemplateColumns: "260px 1fr" }}>
         <FoodtruckerSidebar active="/dashboard/foodtrucker/candidatures" />
@@ -528,7 +580,7 @@ function CandidaturesClientInner({ initialCandidatures, foodtruckerId }: Props) 
 
       {/* ── Modales ── */}
       {modaleVoir && <ModaleVoir c={modaleVoir} onClose={() => setModaleVoir(null)} />}
-      {modaleMsg  && <ModaleMessages c={modaleMsg} onSend={handleSendMessage} onClose={() => setModaleMsg(null)} />}
+      {modaleMsg  && <ModaleMessages c={modaleMsg} foodtruckerId={foodtruckerId} onClose={() => setModaleMsg(null)} />}
       {modaleAnn  && <ModaleAnnuler titre={modaleAnn.titre} onConfirm={handleAnnuler} onClose={() => setModaleAnn(null)} />}
 
       {/* ── Toast ── */}

@@ -1,9 +1,12 @@
+"use client";
+
 import Link from "next/link";
 import {
   LayoutDashboard, CalendarDays, Inbox, Heart,
   MessageSquare, Clock, Settings,
 } from "lucide-react";
 import LogoutButton from "@/components/layout/LogoutButton";
+import { useUnreadMessages } from "@/components/dashboard/useUnreadMessages";
 
 const S = {
   cream:  "#F2EDE4",
@@ -39,6 +42,8 @@ interface Props {
 }
 
 export default function OrganisateurSidebar({ active, userData, badges = {} }: Props) {
+  const unread = useUnreadMessages();
+  const allBadges: Record<string, number> = { ...badges, "/dashboard/organisateur/messagerie": unread };
   const {
     displayName = "Organisateur",
     displaySubtitle = "",
@@ -91,14 +96,14 @@ export default function OrganisateurSidebar({ active, userData, badges = {} }: P
               }}>
                 {label}
               </span>
-              {badges[href] > 0 && (
+              {allBadges[href] > 0 && (
                 <span style={{
                   backgroundColor: S.terra, color: "#fff",
                   fontFamily: S.sans, fontSize: "0.55rem", fontWeight: 600,
                   lineHeight: 1, padding: "0.2rem 0.45rem", borderRadius: 2,
                   letterSpacing: "0.05em", flexShrink: 0,
                 }}>
-                  {badges[href]}
+                  {allBadges[href]}
                 </span>
               )}
             </Link>

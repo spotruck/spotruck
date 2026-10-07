@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, User, Search, FileText, CalendarDays, Euro, BarChart2, Bell, Settings } from "lucide-react";
+import { LayoutDashboard, User, Search, FileText, CalendarDays, Euro, BarChart2, Bell, Settings, MessageSquare } from "lucide-react";
 import LogoutButton from "@/components/layout/LogoutButton";
+import { useUnreadMessages } from "@/components/dashboard/useUnreadMessages";
 
 const S = {
   cream: "#F2EDE4",
@@ -19,6 +20,7 @@ const NAV = [
   { icon: User,            label: "MON PROFIL",        href: "/dashboard/foodtrucker/profil" },
   { icon: Search,          label: "OPPORTUNITÉS",      href: "/dashboard/foodtrucker/opportunites" },
   { icon: FileText,        label: "CANDIDATURES",      href: "/dashboard/foodtrucker/candidatures" },
+  { icon: MessageSquare,   label: "MESSAGERIE",        href: "/dashboard/foodtrucker/messagerie" },
   { icon: CalendarDays,   label: "CALENDRIER",        href: "/dashboard/foodtrucker/calendrier" },
   { icon: Euro,            label: "REVENUS",           href: "/dashboard/foodtrucker/revenus" },
   { icon: BarChart2,       label: "STATISTIQUES",      href: "/dashboard/foodtrucker/statistiques" },
@@ -40,6 +42,8 @@ interface Props {
 }
 
 export default function FoodtruckerSidebar({ active, userData, badges = {} }: Props) {
+  const unread = useUnreadMessages();
+  const allBadges: Record<string, number> = { ...badges, "/dashboard/foodtrucker/messagerie": unread };
   // Valeurs par défaut si pas de données
   const {
     displayName = "Foodtrucker",
@@ -96,7 +100,7 @@ export default function FoodtruckerSidebar({ active, userData, badges = {} }: Pr
               }}>
                 {label}
               </span>
-              {badges[href] > 0 && (
+              {allBadges[href] > 0 && (
                 <span style={{
                   backgroundColor: S.terra,
                   color: "#fff",
@@ -109,7 +113,7 @@ export default function FoodtruckerSidebar({ active, userData, badges = {} }: Pr
                   letterSpacing: "0.05em",
                   flexShrink: 0,
                 }}>
-                  {badges[href]}
+                  {allBadges[href]}
                 </span>
               )}
             </Link>

@@ -2,6 +2,13 @@ import { createClient } from "@/lib/supabase/client";
 
 export type SenderType = "organisateur" | "foodtrucker";
 
+export interface MessageAttachment {
+  nom: string;
+  url: string;
+  type: string;
+  taille: number;
+}
+
 export interface MessageRow {
   id: string;
   conversation_id: string;
@@ -9,6 +16,7 @@ export interface MessageRow {
   sender_type: SenderType;
   content: string;
   read_at: string | null;
+  attachments: MessageAttachment[];
   created_at: string;
 }
 
@@ -97,11 +105,13 @@ export async function sendMessage({
   senderId,
   senderType,
   content,
+  attachments = [],
 }: {
   conversationId: string;
   senderId: string;
   senderType: SenderType;
   content: string;
+  attachments?: MessageAttachment[];
 }) {
   const supabase = createClient();
   const { data, error } = await supabase
@@ -111,6 +121,7 @@ export async function sendMessage({
       sender_id: senderId,
       sender_type: senderType,
       content,
+      attachments,
     })
     .select()
     .single();
@@ -157,4 +168,16 @@ export async function markAsRead(conversationId: string, currentUserId: string) 
     .eq("conversation_id", conversationId)
     .neq("sender_id", currentUserId)
     .is("read_at", null);
+}
+
+export async function uploadMessageAttachment(file: File, userId: string, conversationId: string): Promise<MessageAttachment> {
+  const supabase = createClient();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${userId}/messages/${conversationId}/${Date.now()}-${safeName}`;
+  const { error } = await supabase.storage
+    .from("spotruck-uploads")
+    .upload(path, file, { contentType: file.type || undefined });
+  if (error) throw error;
+  const { data } = supabase.storage.from("spotruck-uploads").getPublicUrl(path);
+  return { nom: file.name, url: data.publicUrl, type: file.type, taille: file.size };
 }

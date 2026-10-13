@@ -5,8 +5,9 @@ import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
 import { Send, CheckCircle, Search, X } from "lucide-react";
 import {
   getConversations, getMessages, sendMessage,
-  subscribeToMessages, markAsRead, type MessageRow,
+  subscribeToMessages, markAsRead, uploadMessageAttachment, type MessageRow,
 } from "@/lib/messages";
+import { AttachmentList, AttachPicker } from "@/components/dashboard/MessageAttachments";
 
 const S = {
   cream:  "#F2EDE4", brown:  "#2C1810", terra:  "#C4622D",
@@ -38,6 +39,7 @@ function MessageBubble({ m }: { m: MessageRow }) {
     <div style={{ display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start" }}>
       <div style={{ maxWidth: "72%", backgroundColor: isMine ? S.terra : S.card, padding: "0.875rem 1.25rem", borderRadius: isMine ? "12px 12px 2px 12px" : "12px 12px 12px 2px" }}>
         <p style={{ fontFamily: S.sans, fontSize: "0.82rem", fontWeight: 300, color: isMine ? "#fff" : S.brown, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{m.content}</p>
+        <AttachmentList items={m.attachments} mine={isMine} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", marginTop: "0.3rem" }}>
         <span style={{ fontFamily: S.sans, fontSize: "0.6rem", color: S.muted }}>{heure}</span>
@@ -55,6 +57,7 @@ function MessagerieClientInner({ foodtruckerId }: { foodtruckerId: string }) {
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [pending, setPending] = useState<File[]>([]);
   const [query, setQuery] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const unsubRef = useRef<(() => void) | null>(null);
@@ -114,17 +117,20 @@ function MessagerieClientInner({ foodtruckerId }: { foodtruckerId: string }) {
 
   const envoyer = async () => {
     const texte = draft.trim();
-    if (!texte || !activeId || sending) return;
+    if ((!texte && pending.length === 0) || !activeId || sending) return;
     setSending(true);
     try {
+      const attachments = await Promise.all(pending.map(f => uploadMessageAttachment(f, foodtruckerId, activeId)));
       const sent = await sendMessage({
         conversationId: activeId,
         senderId: foodtruckerId,
         senderType: "foodtrucker",
-        content: texte,
+        content: texte || "📎 Pièce jointe",
+        attachments,
       });
       setMessages(prev => prev.some(x => x.id === sent.id) ? prev : [...prev, sent]);
       setDraft("");
+      setPending([]);
     } catch (err) {
       console.error("Erreur envoi message:", err);
     } finally {
@@ -139,7 +145,7 @@ function MessagerieClientInner({ foodtruckerId }: { foodtruckerId: string }) {
   }, [convs, query]);
 
   const activeConv = convs.find(c => c.id === activeId) ?? null;
-  const canSend = draft.trim().length > 0 && !!activeId;
+  const canSend = (draft.trim().length > 0 || pending.length > 0) && !!activeId;
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: S.cream, color: S.brown, display: "grid", gridTemplateColumns: "260px 1fr" }}>
@@ -217,6 +223,7 @@ function MessagerieClientInner({ foodtruckerId }: { foodtruckerId: string }) {
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); envoyer(); } }}
                   placeholder="Écrivez votre message… (Entrée pour envoyer)" rows={2}
                   style={{ flex: 1, border: `1px solid ${S.border}`, backgroundColor: "transparent", padding: "0.75rem 1rem", fontFamily: S.sans, fontSize: "0.82rem", color: S.brown, outline: "none", resize: "none", boxSizing: "border-box" }} />
+                <AttachPicker pending={pending} onChange={setPending} />
                 <button onClick={envoyer} disabled={!canSend || sending}
                   style={{ backgroundColor: canSend ? S.terra : S.border, color: "#fff", border: "none", padding: "0.875rem 1.5rem", cursor: canSend ? "pointer" : "not-allowed", display: "flex", alignItems: "center", flexShrink: 0 }}>
                   <Send size={15} strokeWidth={2} />

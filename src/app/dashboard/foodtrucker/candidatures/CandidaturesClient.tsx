@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
 import { createClient } from "@/lib/supabase/client";
 import { getOrCreateConversation, getMessages, sendMessage, subscribeToMessages, markAsRead, type MessageRow } from "@/lib/messages";
+import { AttachmentList } from "@/components/dashboard/MessageAttachments";
 import {
   Eye, MessageSquare, XCircle, CheckCircle, X, Send, AlertTriangle,
   Paperclip, FileText, Image as ImageIcon,
@@ -325,7 +326,7 @@ function ModaleMessages({ c, foodtruckerId, onClose }: { c: Candidature; foodtru
                   padding: "0.75rem 1rem", maxWidth: "80%",
                   fontFamily: S.sans, fontSize: "0.82rem", fontWeight: 300, lineHeight: 1.6,
                 }}>
-                  {m.content}
+                  {m.content}<AttachmentList items={m.attachments} mine={isTruck} />
                 </div>
               </div>
             );

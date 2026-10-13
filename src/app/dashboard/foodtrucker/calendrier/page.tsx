@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
 import {
   ChevronLeft, ChevronRight, X, Bell, CheckCircle,
@@ -48,6 +49,11 @@ interface EvenementFR {
   description: string;
   offreId?: string;
   semainesAvantOffre?: number;
+  importe?: boolean;
+  dateConfirmee?: boolean;
+  refN1ISO?: string;
+  lienPost?: string;
+  remarque?: string;
 }
 
 // ─── Statuts config ───────────────────────────────────────────
@@ -334,6 +340,7 @@ function loadPostules(): Set<string> {
 // ─── Taille helpers ───────────────────────────────────────────
 function matchTaille(v: number, t: TailleFilt): boolean {
   if (t === "all") return true;
+  if (v <= 0) return false;
   if (t === "lt1000") return v < 1000;
   if (t === "1000-5000") return v >= 1000 && v < 5000;
   if (t === "5000-20000") return v >= 5000 && v < 20000;
@@ -395,9 +402,12 @@ function ModaleFiche({
   const isDispo    = dispo.has(evt.id);
   const isInDispo  = dispo.has(`${evt.id}:non`);
 
-  const dateTxt = evt.dateFinISO
+  const dateBase = evt.dateFinISO
     ? `Du ${fmtDate(evt.dateISO)} au ${fmtDate(evt.dateFinISO)}`
     : fmtDate(evt.dateISO);
+  const dateTxt = evt.importe && evt.dateConfirmee === false
+    ? `≈ ${dateBase} — date à confirmer${evt.refN1ISO ? ` (estimée d'après l'édition du ${fmtDate(evt.refN1ISO)})` : " (date d'un artiste, dates complètes non annoncées)"}`
+    : dateBase;
 
   return (
     <Modale onClose={onClose} maxWidth={620}>
@@ -434,9 +444,11 @@ function ModaleFiche({
               { icon: <span style={{ fontSize: "0.75rem" }}>📅</span>, label: "DATE", val: dateTxt },
               { icon: <MapPin size={12} strokeWidth={1.5} />, label: "LIEU", val: `${evt.ville}` },
               { icon: <MapPin size={12} strokeWidth={1.5} />, label: "RÉGION", val: evt.region },
-              { icon: <Users size={12} strokeWidth={1.5} />, label: "VISITEURS", val: evt.visiteursTxt },
-              { icon: <Euro size={12} strokeWidth={1.5} />, label: "BUDGET ESTIMÉ", val: evt.budgetEstime },
-              { icon: <span style={{ fontSize: "0.75rem" }}>🔄</span>, label: "SOURCE", val: `Événement récurrent depuis ${evt.anneeCreation}` },
+              ...(evt.importe ? [] : [
+                { icon: <Users size={12} strokeWidth={1.5} />, label: "VISITEURS", val: evt.visiteursTxt },
+                { icon: <Euro size={12} strokeWidth={1.5} />, label: "BUDGET ESTIMÉ", val: evt.budgetEstime },
+              ]),
+              { icon: <span style={{ fontSize: "0.75rem" }}>🔄</span>, label: "SOURCE", val: evt.importe ? "Sélection @myfestival.fr" : `Événement récurrent depuis ${evt.anneeCreation}` },
             ].map(({ icon, label, val }) => (
               <div key={label} style={{ backgroundColor: S.card, padding: "0.75rem 1rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.25rem" }}>
@@ -457,6 +469,7 @@ function ModaleFiche({
           <p style={{ fontFamily: S.sans, fontSize: "0.82rem", fontWeight: 300, color: S.muted, lineHeight: 1.7, marginBottom: "0.75rem" }}>
             {evt.description}
           </p>
+          {!evt.importe && (
           <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", paddingTop: "0.75rem", borderTop: `1px solid ${S.border}` }}>
             <div>
               <p style={{ fontFamily: S.sans, fontSize: "0.56rem", letterSpacing: "0.18em", color: S.muted, marginBottom: "0.2rem" }}>TRUCKS HABITUELLEMENT</p>
@@ -471,6 +484,7 @@ function ModaleFiche({
               <p style={{ fontFamily: S.sans, fontSize: "0.85rem", fontWeight: 700, color: S.brown }}>~{evt.visiteursTxt} visiteurs</p>
             </div>
           </div>
+          )}
         </div>
 
         {/* ── SECTION 3 — Statut de l'offre ── */}
@@ -532,8 +546,14 @@ function ModaleFiche({
           ) : (
             <div>
               <p style={{ fontFamily: S.sans, fontSize: "0.82rem", fontWeight: 300, color: S.muted, lineHeight: 1.6, marginBottom: "1rem" }}>
-                Aucune offre publiée — cet événement recrute souvent directement auprès des organisateurs. Utilisez la base de prospection pour contacter l'organisateur.
+                {evt.importe ? "Pas encore d'appel à candidatures pour cette édition. Repérez le festival dès maintenant et préparez votre prise de contact avec l'organisateur." : "Aucune offre publiée — cet événement recrute souvent directement auprès des organisateurs. Utilisez la base de prospection pour contacter l'organisateur."}
               </p>
+              {evt.importe && evt.lienPost && (
+                <a href={evt.lienPost} target="_blank" rel="noopener noreferrer"
+                  style={{ display: "inline-block", marginRight: "0.6rem", backgroundColor: "transparent", color: S.muted, border: `1px solid ${S.border}`, padding: "0.75rem 1.5rem", fontFamily: S.sans, fontSize: "0.63rem", letterSpacing: "0.2em", textDecoration: "none" }}>
+                  VOIR LE POST INSTAGRAM ↗
+                </a>
+              )}
               <button
                 onClick={() => { router.push("/dashboard/foodtrucker/prospection"); onClose(); }}
                 style={{ backgroundColor: "transparent", color: S.blue, border: `1px solid ${S.blue}`, padding: "0.75rem 1.5rem", fontFamily: S.sans, fontSize: "0.63rem", letterSpacing: "0.2em", cursor: "pointer" }}
@@ -778,7 +798,7 @@ function VuePlanning({
                   {/* Date */}
                   <div>
                     <div style={{ fontFamily: S.serif, fontSize: "1.5rem", fontWeight: 800, color: S.brown, lineHeight: 1 }}>
-                      {ymd(e.dateISO).d}
+                      {e.importe && e.dateConfirmee === false ? "≈ " : ""}{ymd(e.dateISO).d}
                     </div>
                     <div style={{ fontFamily: S.sans, fontSize: "0.58rem", letterSpacing: "0.15em", color: S.muted }}>
                       {MOIS_COURT[ymd(e.dateISO).m - 1].toUpperCase()} {e.dateFinISO ? `→ ${ymd(e.dateFinISO).d}` : ""}
@@ -791,15 +811,25 @@ function VuePlanning({
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem", flexWrap: "wrap" }}>
                       <span style={{ fontFamily: S.sans, fontSize: "0.875rem", color: S.brown }}>{e.titre}</span>
                       <span style={{ backgroundColor: cfg.bg, color: cfg.color, fontFamily: S.sans, fontSize: "0.56rem", letterSpacing: "0.12em", fontWeight: 700, padding: "0.2rem 0.5rem" }}>{cfg.label}</span>
-                      <span style={{ backgroundColor: S.card, color: S.muted, fontFamily: S.sans, fontSize: "0.56rem", letterSpacing: "0.1em", padding: "0.2rem 0.5rem" }}>{e.typeOffre.toUpperCase()}</span>
+                      {e.importe ? (
+                        e.dateConfirmee === false && (
+                          <span style={{ backgroundColor: "rgba(184,133,10,0.12)", color: S.amber, fontFamily: S.sans, fontSize: "0.56rem", letterSpacing: "0.1em", fontWeight: 700, padding: "0.2rem 0.5rem" }}>DATE À CONFIRMER</span>
+                        )
+                      ) : (
+                        <span style={{ backgroundColor: S.card, color: S.muted, fontFamily: S.sans, fontSize: "0.56rem", letterSpacing: "0.1em", padding: "0.2rem 0.5rem" }}>{e.typeOffre.toUpperCase()}</span>
+                      )}
                     </div>
                     <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-                      <span style={{ fontFamily: S.sans, fontSize: "0.7rem", fontWeight: 300, color: S.muted, display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                        <Users size={10} strokeWidth={1.5} /> {e.visiteursTxt}
-                      </span>
-                      <span style={{ fontFamily: S.sans, fontSize: "0.7rem", fontWeight: 300, color: S.muted, display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                        <Euro size={10} strokeWidth={1.5} /> {e.budgetEstime}
-                      </span>
+                      {!e.importe && (
+                        <span style={{ fontFamily: S.sans, fontSize: "0.7rem", fontWeight: 300, color: S.muted, display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                          <Users size={10} strokeWidth={1.5} /> {e.visiteursTxt}
+                        </span>
+                      )}
+                      {!e.importe && (
+                        <span style={{ fontFamily: S.sans, fontSize: "0.7rem", fontWeight: 300, color: S.muted, display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                          <Euro size={10} strokeWidth={1.5} /> {e.budgetEstime}
+                        </span>
+                      )}
                       <span style={{ fontFamily: S.sans, fontSize: "0.7rem", fontWeight: 300, color: S.muted }}>
                         {e.typeEvt}
                       </span>
@@ -844,6 +874,7 @@ export default function CalendrierPage() {
   const [dispo,     setDispo]     = useState<Set<string>>(new Set());
   const [postules,  setPostules]  = useState<Set<string>>(new Set());
 
+  const [importes, setImportes] = useState<EvenementFR[]>([]);
   const [ficheEvt, setFicheEvt] = useState<EvenementFR | null>(null);
   const [toast,    setToast]    = useState<{ msg: string; color?: string } | null>(null);
 
@@ -853,6 +884,45 @@ export default function CalendrierPage() {
     setDispo(loadDispo());
     setPostules(loadPostules());
   }, []);
+
+  // Festivals importés (table festivals_calendrier)
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("festivals_calendrier")
+      .select("id, nom, ville, region, date_debut, date_fin, date_confirmee, date_reference_n1, remarque, lien_post")
+      .order("date_debut", { ascending: true })
+      .then(({ data, error }) => {
+        if (error || !data) return;
+        setImportes(data.map((r: {
+          id: string; nom: string; ville: string | null; region: string | null;
+          date_debut: string; date_fin: string | null; date_confirmee: boolean;
+          date_reference_n1: string | null; remarque: string | null; lien_post: string | null;
+        }) => ({
+          id: `fc-${r.id}`,
+          titre: r.nom,
+          ville: r.ville || "France",
+          region: r.region || "Nationale",
+          dateISO: r.date_debut,
+          dateFinISO: r.date_fin && r.date_fin !== r.date_debut ? r.date_fin : undefined,
+          typeEvt: "Festival" as TypeEvt,
+          typeOffre: "Variable" as TypeOffre,
+          statut: "prospecter" as StatutOffre,
+          visiteurs: 0, visiteursTxt: "—", budgetEstime: "—",
+          anneeCreation: 0, nbTrucksHab: 0, budgetHab: "—",
+          description: r.remarque
+            ? `${r.remarque}. Sélection issue de @myfestival.fr.`
+            : "Sélection issue de @myfestival.fr. Appel à candidatures pas encore publié.",
+          importe: true,
+          dateConfirmee: r.date_confirmee,
+          refN1ISO: r.date_reference_n1 ?? undefined,
+          lienPost: r.lien_post ?? undefined,
+          remarque: r.remarque ?? undefined,
+        })));
+      });
+  }, []);
+
+  const tousEvents: EvenementFR[] = [...EVENTS_FR, ...importes];
 
   // Navigation mois
   function prevMois() { if (mois === 1) { setMois(12); setAnnee(a => a - 1); } else setMois(m => m - 1); }
@@ -890,7 +960,7 @@ export default function CalendrierPage() {
     { label: "+ 20 000 visiteurs", val: "gt20000" },
   ];
 
-  const filtered = EVENTS_FR.filter(e => {
+  const filtered = tousEvents.filter(e => {
     const statut: StatutOffre = postules.has(e.id) ? "postule" : e.statut;
     if (filtRegion !== "Toutes les régions" && e.region !== filtRegion) return false;
     if (filtType   !== "Tous les types"     && e.typeEvt !== filtType) return false;
@@ -931,7 +1001,7 @@ export default function CalendrierPage() {
               <p style={{ fontFamily: S.sans, fontSize: "0.62rem", letterSpacing: "0.2em", color: S.muted, marginBottom: "0.5rem" }}>DASHBOARD — FOODTRUCKER</p>
               <h1 style={{ fontFamily: S.serif, fontSize: "2.2rem", fontWeight: 800, lineHeight: 1.1 }}>Calendrier des événements</h1>
               <p style={{ fontFamily: S.sans, fontSize: "0.78rem", fontWeight: 300, color: S.muted, marginTop: "0.4rem" }}>
-                {EVENTS_FR.length} événements récurrents en France — Cliquez pour voir la fiche et postuler
+                {tousEvents.length} événements en France — Cliquez pour voir la fiche et postuler
               </p>
             </div>
             {/* Bascule vue */}

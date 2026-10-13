@@ -273,7 +273,7 @@ function MessagerieClientInner({ organisateurId, organisateurNom }: Props) {
                 <AttachPicker pending={pending} onChange={setPending} />
                 <button onClick={envoyer} disabled={!canSend || sending}
                   style={{ backgroundColor: canSend ? S.terra : S.border, color:"#fff", border:"none", padding:"0.875rem 1.5rem", cursor: canSend ? "pointer" : "not-allowed", display:"flex", alignItems:"center", gap:"0.4rem", flexShrink:0 }}>
-                  <Send size={15} strokeWidth={2} />
+                  {sending ? <span style={{ fontSize: "0.65rem", letterSpacing: "0.1em", whiteSpace: "nowrap" }}>ENVOI…</span> : <Send size={15} strokeWidth={2} />}
                 </button>
               </div>
             </div>

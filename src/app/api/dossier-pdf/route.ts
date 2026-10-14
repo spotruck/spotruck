@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { checkPdfQuota, logPdf } from "@/lib/billing/gating";
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage, PDFImage } from "pdf-lib";
 
 export const runtime = "nodejs";
@@ -91,6 +92,9 @@ export async function POST(req: NextRequest) {
 
   const { data: ft } = await sb.from("foodtruckers").select("*").eq("id", u.user.id).maybeSingle();
   if (!ft) return NextResponse.json({ error: "Profil foodtrucker introuvable" }, { status: 404 });
+
+  const quota = await checkPdfQuota(ft);
+  if (!quota.ok) return NextResponse.json({ error: quota.message, code: "limite_plan" }, { status: 402 });
 
   type Doc = { type: string; url: string; name?: string; date_expiration?: string | null };
   const docList: Doc[] = [];
@@ -329,6 +333,7 @@ export async function POST(req: NextRequest) {
 
   const out = await pdf.save();
   const fname = `dossier-${s(ft.nom_truck).toLowerCase().replace(/[^a-z0-9]+/g, "-")}.pdf`;
+  await logPdf(ft.id, evenementId);
   return new NextResponse(Buffer.from(out), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fname}"` },
   });

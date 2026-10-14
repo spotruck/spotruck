@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, User, Search, FileText, CalendarDays, Euro, BarChart2, Bell, Settings, MessageSquare } from "lucide-react";
+import { LayoutDashboard, User, Search, FileText, CalendarDays, Euro, BarChart2, Bell, Settings, MessageSquare, CreditCard } from "lucide-react";
 import LogoutButton from "@/components/layout/LogoutButton";
 import { useUnreadMessages } from "@/components/dashboard/useUnreadMessages";
 
@@ -26,6 +26,7 @@ const NAV = [
   { icon: Euro,            label: "REVENUS",           href: "/dashboard/foodtrucker/revenus" },
   { icon: BarChart2,       label: "STATISTIQUES",      href: "/dashboard/foodtrucker/statistiques" },
   { icon: Bell,            label: "NOTIFICATIONS",     href: "/dashboard/foodtrucker/notifications" },
+  { icon: CreditCard, label: "MON ABONNEMENT", href: "/dashboard/foodtrucker/abonnement" },
   { icon: Settings,        label: "PARAMÈTRES",        href: "/dashboard/foodtrucker/parametres" },
 ];
 

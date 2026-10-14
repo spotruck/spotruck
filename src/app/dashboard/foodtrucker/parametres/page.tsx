@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
-import {
-  CheckCircle, X, Download, AlertTriangle, Zap, Star, Gift, Leaf,
-} from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { CheckCircle, AlertTriangle, Zap, Star, Gift, Leaf } from "lucide-react";
+import { FREE_FEATURES, PRO_FEATURES, GRACE_DAYS, isPaidPlan, type Feature } from "@/lib/billing/plans";
 
 // ─── Design tokens ────────────────────────────────────────────
 const S = {
@@ -38,16 +38,11 @@ const btnOutline: React.CSSProperties = {
   letterSpacing: "0.2em", cursor: "pointer",
 };
 
-// ─── LocalStorage ─────────────────────────────────────────────
-const LS_COMPTE    = "spotruck_compte";
-const LS_ABO       = "spotruck_abonnement";
-const LS_NOTIF     = "spotruck_notif_prefs";
+// ─── LocalStorage (préférences de notification, en secours) ───
+const LS_NOTIF = "spotruck_notif_prefs";
 
 type PlanKey = "free" | "pro" | "premium" | "saison";
-
-interface CompteData { email: string }
-interface AboData    { plan: PlanKey }
-interface NotifData  { [key: string]: boolean }
+interface NotifData { [key: string]: boolean }
 
 const NOTIF_DEFAULTS: NotifData = {
   opportunites: true,
@@ -66,78 +61,13 @@ function saveLS(key: string, val: unknown) {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
 }
 
-// ─── Plans ────────────────────────────────────────────────────
-const PLANS: {
-  key: PlanKey; label: string; icon: React.ReactNode;
-  priceLaunch: string; priceNormal: string; mention: string;
-  features: { text: string; ok: boolean }[];
-}[] = [
-  {
-    key: "free", label: "FREE", icon: <Gift size={16} strokeWidth={1.5} />,
-    priceLaunch: "0 €", priceNormal: "", mention: "Pour démarrer",
-    features: [
-      { ok: true,  text: "Profil visible sur la marketplace" },
-      { ok: true,  text: "Consultation des opportunités" },
-      { ok: true,  text: "Calendrier en lecture seule" },
-      { ok: false, text: "Candidatures" },
-      { ok: false, text: "Statistiques financières" },
-      { ok: false, text: "Calculateur de rentabilité" },
-    ],
-  },
-  {
-    key: "pro", label: "PRO", icon: <Star size={16} strokeWidth={1.5} />,
-    priceLaunch: "15 €/mois", priceNormal: "29 €/mois",
-    mention: "Offre valable pour les 50 premiers inscrits",
-    features: [
-      { ok: true,  text: "Candidatures illimitées" },
-      { ok: true,  text: "Badge Vérifié ✓" },
-      { ok: true,  text: "Calendrier complet + blocage de dates" },
-      { ok: true,  text: "Suivi CA mensuel simple" },
-      { ok: true,  text: "Liste des événements réalisés" },
-      { ok: true,  text: "Factures PDF téléchargeables" },
-      { ok: true,  text: "Export CSV des transactions" },
-      { ok: false, text: "Calculateur de rentabilité" },
-      { ok: false, text: "Ratios et projections" },
-      { ok: false, text: "Accès anticipé 24h" },
-    ],
-  },
-  {
-    key: "premium", label: "PREMIUM", icon: <Zap size={16} strokeWidth={1.5} />,
-    priceLaunch: "29 €/mois", priceNormal: "59 €/mois",
-    mention: "Offre valable pour les 50 premiers inscrits",
-    features: [
-      { ok: true, text: "Tout Pro +" },
-      { ok: true, text: "Tête de liste dans les résultats ⭐" },
-      { ok: true, text: "Accès aux opportunités 24h avant" },
-      { ok: true, text: "Alertes J-90 anticipées" },
-      { ok: true, text: "Calculateur de rentabilité par événement → droit de place vs CA réalisé = marge nette %" },
-      { ok: true, text: "Ratio candidatures : envoyées / acceptées / taux de succès %" },
-      { ok: true, text: "CA moyen par type d'événement (festival, mariage, marché…)" },
-      { ok: true, text: "Comparaison mensuelle : graphique mois par mois" },
-      { ok: true, text: "Projection CA annuel estimée sur l'historique" },
-      { ok: true, text: "Meilleure période : tes mois les plus rentables identifiés" },
-      { ok: true, text: "Prospection base de données complète" },
-    ],
-  },
-  {
-    key: "saison", label: "SAISON", icon: <Leaf size={16} strokeWidth={1.5} />,
-    priceLaunch: "99 €", priceNormal: "149 €",
-    mention: "8 mois consécutifs",
-    features: [
-      { ok: true,  text: "Tout Plan Pro" },
-      { ok: true,  text: "Valable 8 mois consécutifs à partir de votre date d'activation" },
-      { ok: true,  text: "Adapté au rythme terrain" },
-      { ok: true,  text: "Activation flexible selon votre saison" },
-      { ok: false, text: "Fonctions Premium (calculateur, ratios, projections)" },
-    ],
-  },
-];
-
-const FACTURES = [
-  { ref: "FAC-2025-003", date: "1 juin 2025",  montant: "16,50 €",  statut: "PAYÉE" },
-  { ref: "FAC-2025-002", date: "1 mai 2025",   montant: "16,50 €",  statut: "PAYÉE" },
-  { ref: "FAC-2025-001", date: "1 avr. 2025",  montant: "16,50 €",  statut: "PAYÉE" },
-];
+// ─── Plans (affichage) ────────────────────────────────────────
+const PLAN_META: Record<PlanKey, { label: string; icon: React.ReactNode }> = {
+  free:    { label: "GRATUIT", icon: <Gift size={16} strokeWidth={1.5} /> },
+  pro:     { label: "PRO",     icon: <Star size={16} strokeWidth={1.5} /> },
+  premium: { label: "PREMIUM", icon: <Zap  size={16} strokeWidth={1.5} /> },
+  saison:  { label: "SAISON",  icon: <Leaf size={16} strokeWidth={1.5} /> },
+};
 
 const NOTIF_LABELS: { key: string; label: string; sub: string }[] = [
   { key: "opportunites", label: "Nouvelles opportunités dans ma région",  sub: "Email dès qu'un événement correspond à votre profil" },
@@ -163,7 +93,7 @@ const STRENGTH_LABELS = ["", "FAIBLE", "MOYEN", "BON", "FORT"];
 
 // ─── Toast ────────────────────────────────────────────────────
 function Toast({ message, color = "#2C7A4B", onDone }: { message: string; color?: string; onDone: () => void }) {
-  useEffect(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t); }, [onDone]);
+  useEffect(() => { const t = setTimeout(onDone, 3500); return () => clearTimeout(t); }, [onDone]);
   return (
     <div style={{
       position: "fixed", bottom: "2rem", left: "50%", transform: "translateX(-50%)",
@@ -171,7 +101,7 @@ function Toast({ message, color = "#2C7A4B", onDone }: { message: string; color?
       display: "flex", alignItems: "center", gap: "0.6rem",
       padding: "0.875rem 1.75rem", boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
       fontFamily: S.sans, fontSize: "0.78rem", letterSpacing: "0.08em",
-      animation: "toastIn 0.25s ease", whiteSpace: "nowrap",
+      animation: "toastIn 0.25s ease", maxWidth: "90vw",
     }}>
       <CheckCircle size={16} strokeWidth={2} /> {message}
       <style>{`@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
@@ -228,23 +158,28 @@ function Modal({ children, onClose, maxWidth = 520 }: { children: React.ReactNod
 // ─── Page ─────────────────────────────────────────────────────
 export default function ParametresPage() {
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
 
   // ── Compte ──
-  const [email,        setEmail]        = useState("jean.martin@leburgerbreton.fr");
+  const [email,        setEmail]        = useState("");
   const [editEmail,    setEditEmail]    = useState(false);
   const [emailDraft,   setEmailDraft]   = useState("");
   const [emailError,   setEmailError]   = useState("");
+  const [emailBusy,    setEmailBusy]    = useState(false);
   const [editPwd,      setEditPwd]      = useState(false);
   const [pwdCurrent,   setPwdCurrent]   = useState("");
   const [pwdNew,       setPwdNew]       = useState("");
   const [pwdConfirm,   setPwdConfirm]   = useState("");
   const [pwdError,     setPwdError]     = useState("");
+  const [pwdBusy,      setPwdBusy]      = useState(false);
 
-  // ── Abonnement ──
-  const [plan,         setPlan]         = useState<PlanKey>("pro");
-  const [modalPlans,   setModalPlans]   = useState(false);
-  const [confirmPlan,  setConfirmPlan]  = useState<PlanKey | null>(null);
-  const [modalFactures, setModalFactures] = useState(false);
+  // ── Abonnement (données réelles) ──
+  const [plan,         setPlan]         = useState<PlanKey>("free");
+  const [planExpire,   setPlanExpire]   = useState<string | null>(null);
+  const [planStatus,   setPlanStatus]   = useState<string | null>(null);
+  const [cancelAtEnd,  setCancelAtEnd]  = useState(false);
+  const [planLoading,  setPlanLoading]  = useState(true);
+  const [portalBusy,   setPortalBusy]   = useState(false);
 
   // ── Notifications ──
   const [notifPrefs, setNotifPrefs] = useState<NotifData>(NOTIF_DEFAULTS);
@@ -257,60 +192,116 @@ export default function ParametresPage() {
   const [toast, setToast] = useState<{ msg: string; color?: string } | null>(null);
   const fire = useCallback((msg: string, color?: string) => setToast({ msg, color }), []);
 
-  // ── Hydration localStorage ──
+  // ── Chargement des vraies données ──
   useEffect(() => {
-    const compte = loadLS<CompteData>(LS_COMPTE, { email: "jean.martin@leburgerbreton.fr" });
-    const abo    = loadLS<AboData>(LS_ABO, { plan: "pro" });
-    const notif  = loadLS<NotifData>(LS_NOTIF, NOTIF_DEFAULTS);
-    setEmail(compte.email);
-    setPlan(abo.plan);
-    setNotifPrefs({ ...NOTIF_DEFAULTS, ...notif });
-  }, []);
+    let alive = true;
+    (async () => {
+      const { data: u } = await supabase.auth.getUser();
+      const user = u.user;
+      if (!user) { router.push("/auth/login"); return; }
+      if (!alive) return;
+      setEmail(user.email || "");
+
+      const { data: ft } = await supabase
+        .from("foodtruckers")
+        .select("plan, plan_expire_at, plan_status, plan_cancel_at_period_end")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (!alive) return;
+      const p = (ft?.plan || "free") as PlanKey;
+      setPlan(isPaidPlan(ft) ? p : "free");
+      setPlanExpire(ft?.plan_expire_at ?? null);
+      setPlanStatus(ft?.plan_status ?? null);
+      setCancelAtEnd(!!ft?.plan_cancel_at_period_end);
+      setPlanLoading(false);
+
+      // Préférences de notification : base de données si disponible, sinon navigateur
+      let prefs: NotifData = loadLS<NotifData>(LS_NOTIF, NOTIF_DEFAULTS);
+      try {
+        const { data: np, error } = await supabase.from("foodtruckers").select("notif_prefs").eq("id", user.id).maybeSingle();
+        if (!error && np?.notif_prefs && typeof np.notif_prefs === "object") prefs = np.notif_prefs as NotifData;
+      } catch {}
+      if (alive) setNotifPrefs({ ...NOTIF_DEFAULTS, ...prefs });
+    })();
+    return () => { alive = false; };
+  }, [supabase, router]);
 
   // ─── Handlers Compte ──────────────────────────────────────
   function startEditEmail() { setEmailDraft(email); setEmailError(""); setEditEmail(true); }
 
-  function saveEmail() {
+  async function saveEmail() {
     if (!emailDraft.includes("@") || !emailDraft.includes(".")) {
       setEmailError("Adresse email invalide."); return;
     }
-    setEmail(emailDraft);
-    saveLS(LS_COMPTE, { email: emailDraft });
+    if (emailDraft === email) { setEditEmail(false); return; }
+    setEmailBusy(true);
+    const { error } = await supabase.auth.updateUser({ email: emailDraft });
+    setEmailBusy(false);
+    if (error) { setEmailError(error.message); return; }
     setEditEmail(false);
-    fire("Email mis à jour");
+    fire("Un e-mail de confirmation vient d'être envoyé à la nouvelle adresse");
   }
 
-  function savePwd() {
+  async function savePwd() {
     if (pwdNew.length < 8) { setPwdError("Minimum 8 caractères."); return; }
     if (pwdNew !== pwdConfirm) { setPwdError("Les mots de passe ne correspondent pas."); return; }
+    setPwdBusy(true);
+    const { error: e1 } = await supabase.auth.signInWithPassword({ email, password: pwdCurrent });
+    if (e1) { setPwdBusy(false); setPwdError("Mot de passe actuel incorrect."); return; }
+    const { error: e2 } = await supabase.auth.updateUser({ password: pwdNew });
+    setPwdBusy(false);
+    if (e2) { setPwdError(e2.message); return; }
     setPwdError("");
     setEditPwd(false);
     setPwdCurrent(""); setPwdNew(""); setPwdConfirm("");
     fire("Mot de passe mis à jour");
   }
 
-  // ─── Handlers Abonnement ──────────────────────────────────
-  function confirmChangePlan() {
-    if (!confirmPlan) return;
-    setPlan(confirmPlan);
-    saveLS(LS_ABO, { plan: confirmPlan });
-    setConfirmPlan(null);
-    setModalPlans(false);
-    const p = PLANS.find(p => p.key === confirmPlan);
-    fire(`Plan ${p?.label} activé !`);
+  // ─── Abonnement : portail Stripe (gestion + factures) ─────
+  async function ouvrirPortail() {
+    setPortalBusy(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Session expirée, reconnecte-toi.");
+      const res = await fetch("/api/stripe/portal", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "Erreur");
+      if (j.url) window.location.href = j.url;
+    } catch (e) {
+      fire(e instanceof Error ? e.message : "Erreur", S.danger);
+      setPortalBusy(false);
+    }
   }
 
   // ─── Handlers Notifications ───────────────────────────────
+  async function persistNotif(next: NotifData) {
+    saveLS(LS_NOTIF, next);
+    try {
+      const { data } = await supabase.auth.getUser();
+      if (data.user) await supabase.from("foodtruckers").update({ notif_prefs: next }).eq("id", data.user.id);
+    } catch {}
+  }
   function toggleNotif(key: string) {
     setNotifPrefs(prev => {
       const next = { ...prev, [key]: !prev[key] };
-      saveLS(LS_NOTIF, next);
+      void persistNotif(next);
       return next;
     });
   }
 
   // ─── Plan actuel ──────────────────────────────────────────
-  const currentPlan = PLANS.find(p => p.key === plan)!;
+  const meta = PLAN_META[plan];
+  const paid = plan !== "free";
+  const features: Feature[] = paid ? PRO_FEATURES : FREE_FEATURES;
+  const finPeriode =
+    planExpire && !Number.isNaN(Date.parse(planExpire))
+      ? new Date(Date.parse(planExpire) - GRACE_DAYS * 86400000).toLocaleDateString("fr-FR")
+      : null;
   const strength = passwordStrength(pwdNew);
 
   return (
@@ -325,9 +316,7 @@ export default function ParametresPage() {
             <h1 style={{ fontFamily: S.serif, fontSize: "2.2rem", fontWeight: 800, lineHeight: 1.1 }}>Paramètres</h1>
           </div>
 
-          {/* ══════════════════════════════════════════════════
-              SECTION 1 — COMPTE
-          ══════════════════════════════════════════════════ */}
+          {/* ══════════════ SECTION 1 — COMPTE ══════════════ */}
           <section style={{ marginBottom: "3rem" }}>
             <SectionHeader title="Mon compte" />
 
@@ -336,7 +325,7 @@ export default function ParametresPage() {
               <label style={lbl}>ADRESSE EMAIL</label>
               {!editEmail ? (
                 <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                  <span style={{ fontFamily: S.sans, fontSize: "0.9rem", color: S.brown }}>{email}</span>
+                  <span style={{ fontFamily: S.sans, fontSize: "0.9rem", color: S.brown }}>{email || "…"}</span>
                   <button onClick={startEditEmail} style={{ ...btnOutline, padding: "0.4rem 0.875rem" }}>MODIFIER</button>
                 </div>
               ) : (
@@ -353,7 +342,7 @@ export default function ParametresPage() {
                     </p>
                   )}
                   <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <button onClick={saveEmail} style={btnTerra()}>SAUVEGARDER</button>
+                    <button onClick={saveEmail} disabled={emailBusy} style={btnTerra(emailBusy)}>{emailBusy ? "ENVOI…" : "SAUVEGARDER"}</button>
                     <button onClick={() => { setEditEmail(false); setEmailError(""); }} style={btnOutline}>ANNULER</button>
                   </div>
                 </div>
@@ -387,7 +376,7 @@ export default function ParametresPage() {
                     <div>
                       <div style={{ display: "flex", gap: "3px", marginBottom: "0.3rem" }}>
                         {[0,1,2,3].map(i => (
-                          <div key={i} style={{ flex: 1, height: "3px", backgroundColor: i < strength ? STRENGTH_COLORS[strength] : S.border, transition: "background-color 0.2s, borderRadius 0" }} />
+                          <div key={i} style={{ flex: 1, height: "3px", backgroundColor: i < strength ? STRENGTH_COLORS[strength] : S.border, transition: "background-color 0.2s" }} />
                         ))}
                       </div>
                       {strength > 0 && (
@@ -403,8 +392,8 @@ export default function ParametresPage() {
                   <div style={{ display: "flex", gap: "0.5rem" }}>
                     <button
                       onClick={savePwd}
-                      disabled={!pwdCurrent || !pwdNew || !pwdConfirm}
-                      style={btnTerra(!pwdCurrent || !pwdNew || !pwdConfirm)}>SAUVEGARDER</button>
+                      disabled={!pwdCurrent || !pwdNew || !pwdConfirm || pwdBusy}
+                      style={btnTerra(!pwdCurrent || !pwdNew || !pwdConfirm || pwdBusy)}>{pwdBusy ? "ENVOI…" : "SAUVEGARDER"}</button>
                     <button onClick={() => { setEditPwd(false); setPwdCurrent(""); setPwdNew(""); setPwdConfirm(""); setPwdError(""); }} style={btnOutline}>ANNULER</button>
                   </div>
                 </div>
@@ -412,58 +401,76 @@ export default function ParametresPage() {
             </div>
           </section>
 
-          {/* ══════════════════════════════════════════════════
-              SECTION 2 — ABONNEMENT
-          ══════════════════════════════════════════════════ */}
+          {/* ══════════════ SECTION 2 — ABONNEMENT ══════════════ */}
           <section style={{ marginBottom: "3rem" }}>
             <SectionHeader title="Mon abonnement" />
 
-            {/* Plan actuel */}
             <div style={{ backgroundColor: S.card, padding: "1.75rem", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-                  <span style={{ color: S.terra }}>{currentPlan.icon}</span>
-                  <span style={{ fontFamily: S.sans, fontSize: "0.65rem", letterSpacing: "0.2em", color: S.terra, fontWeight: 600 }}>
-                    PLAN ACTUEL — {currentPlan.label}
-                  </span>
-                </div>
-                <div style={{ display: "flex", alignItems: "baseline", gap: "0.75rem", marginBottom: "0.3rem" }}>
-                  <span style={{ fontFamily: S.serif, fontSize: "2rem", fontWeight: 800, color: S.brown }}>{currentPlan.priceLaunch}</span>
-                  {currentPlan.priceNormal && (
-                    <span style={{ fontFamily: S.sans, fontSize: "0.85rem", color: S.muted, textDecoration: "line-through" }}>{currentPlan.priceNormal}</span>
-                  )}
-                </div>
-                {currentPlan.key !== "free" && (
-                  <span style={{ display: "inline-block", backgroundColor: "rgba(196,98,45,0.12)", color: S.terra, fontFamily: S.sans, fontSize: "0.58rem", letterSpacing: "0.15em", padding: "0.2rem 0.5rem", fontWeight: 600 }}>
-                    PRIX DE LANCEMENT
-                  </span>
-                )}
-                <p style={{ fontFamily: S.sans, fontSize: "0.72rem", fontWeight: 300, color: S.muted, marginTop: "0.4rem" }}>{currentPlan.mention}</p>
-                <p style={{ fontFamily: S.sans, fontSize: "0.72rem", fontWeight: 300, color: S.muted, marginTop: "0.25rem", marginBottom: "1rem" }}>
-                  Renouvellement le <strong style={{ color: S.brown, fontWeight: 500 }}>1er juillet 2025</strong>
-                </p>
-                {/* Features du plan actuel */}
-                <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                  {currentPlan.features.map(f => (
-                    <li key={f.text} style={{ fontFamily: S.sans, fontSize: "0.72rem", fontWeight: 300, color: f.ok ? S.brown : S.muted, display: "flex", alignItems: "flex-start", gap: "0.4rem", lineHeight: 1.45, opacity: f.ok ? 1 : 0.5 }}>
-                      <span style={{ flexShrink: 0, color: f.ok ? S.terra : S.border, fontWeight: 600, fontSize: "0.78rem", marginTop: "0.05rem" }}>
-                        {f.ok ? "✓" : "✗"}
+              {planLoading ? (
+                <p style={{ fontFamily: S.sans, fontSize: "0.8rem", color: S.muted }}>Chargement…</p>
+              ) : (
+                <>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                      <span style={{ color: S.terra }}>{meta.icon}</span>
+                      <span style={{ fontFamily: S.sans, fontSize: "0.65rem", letterSpacing: "0.2em", color: S.terra, fontWeight: 600 }}>
+                        PLAN ACTUEL — {meta.label}
                       </span>
-                      {f.text}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <button onClick={() => setModalPlans(true)} style={btnTerra()}>CHANGER DE PLAN</button>
-                <button onClick={() => setModalFactures(true)} style={btnOutline}>GÉRER MA FACTURATION</button>
-              </div>
+                    </div>
+
+                    {paid ? (
+                      <p style={{ fontFamily: S.sans, fontSize: "0.78rem", fontWeight: 300, color: S.muted, marginBottom: "1rem", lineHeight: 1.6 }}>
+                        {planStatus === "past_due" && (
+                          <span style={{ color: S.danger, fontWeight: 500 }}>Dernier paiement refusé : mets à jour ta carte dans « Gérer mon abonnement ». <br /></span>
+                        )}
+                        {finPeriode && cancelAtEnd && (
+                          <>Résiliation programmée : tu gardes l&apos;accès Pro jusqu&apos;au <strong style={{ color: S.brown, fontWeight: 500 }}>{finPeriode}</strong>.</>
+                        )}
+                        {finPeriode && !cancelAtEnd && (
+                          <>Prochain renouvellement le <strong style={{ color: S.brown, fontWeight: 500 }}>{finPeriode}</strong>.</>
+                        )}
+                        {!finPeriode && <>Abonnement actif.</>}
+                      </p>
+                    ) : (
+                      <p style={{ fontFamily: S.sans, fontSize: "0.78rem", fontWeight: 300, color: S.muted, marginBottom: "1rem", lineHeight: 1.6 }}>
+                        Tu utilises Spotruck gratuitement. Le plan Pro te fait gagner du temps sur tes candidatures.
+                      </p>
+                    )}
+
+                    <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                      {features.map(f => (
+                        <li key={f.text} style={{ fontFamily: S.sans, fontSize: "0.72rem", fontWeight: 300, color: S.brown, display: "flex", alignItems: "flex-start", gap: "0.4rem", lineHeight: 1.45 }}>
+                          <span style={{ flexShrink: 0, color: S.terra, fontWeight: 600, fontSize: "0.78rem", marginTop: "0.05rem" }}>✓</span>
+                          <span>
+                            {f.text}
+                            {f.soon && <span style={{ marginLeft: 6, fontSize: "0.55rem", letterSpacing: "0.1em", opacity: 0.6 }}>BIENTÔT</span>}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                    {paid ? (
+                      <>
+                        <button onClick={ouvrirPortail} disabled={portalBusy} style={btnTerra(portalBusy)}>
+                          {portalBusy ? "OUVERTURE…" : "GÉRER MON ABONNEMENT"}
+                        </button>
+                        <button onClick={() => router.push("/dashboard/foodtrucker/abonnement")} style={btnOutline}>VOIR LES OFFRES</button>
+                        <p style={{ fontFamily: S.sans, fontSize: "0.62rem", fontWeight: 300, color: S.muted, maxWidth: 190, lineHeight: 1.5 }}>
+                          Carte, résiliation et factures PDF se gèrent dans « Gérer mon abonnement ».
+                        </p>
+                      </>
+                    ) : (
+                      <button onClick={() => router.push("/dashboard/foodtrucker/abonnement")} style={btnTerra()}>PASSER AU PRO</button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </section>
 
-          {/* ══════════════════════════════════════════════════
-              SECTION 3 — NOTIFICATIONS
-          ══════════════════════════════════════════════════ */}
+          {/* ══════════════ SECTION 3 — NOTIFICATIONS ══════════════ */}
           <section style={{ marginBottom: "3rem" }}>
             <SectionHeader title="Préférences de notifications" />
             <div>
@@ -479,9 +486,7 @@ export default function ParametresPage() {
             </div>
           </section>
 
-          {/* ══════════════════════════════════════════════════
-              SECTION 4 — ZONE DANGER
-          ══════════════════════════════════════════════════ */}
+          {/* ══════════════ SECTION 4 — ZONE DANGER ══════════════ */}
           <section>
             <SectionHeader title="Zone de danger" />
             <div style={{ border: "1px solid rgba(192,57,43,0.3)", padding: "1.25rem 1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
@@ -496,120 +501,6 @@ export default function ParametresPage() {
           </section>
         </div>
       </main>
-
-      {/* ══════════════════════════════════════════════════════
-          MODALES
-      ══════════════════════════════════════════════════════ */}
-
-      {/* ── Changer de plan ── */}
-      {modalPlans && !confirmPlan && (
-        <Modal onClose={() => setModalPlans(false)} maxWidth={780}>
-          <div style={{ padding: "1.75rem 2rem", borderBottom: `1px solid ${S.border}` }}>
-            <p style={{ fontFamily: S.sans, fontSize: "0.6rem", letterSpacing: "0.2em", color: S.terra, marginBottom: "0.35rem" }}>ABONNEMENT</p>
-            <h2 style={{ fontFamily: S.serif, fontSize: "1.4rem", fontWeight: 800, color: S.brown }}>Choisissez votre plan</h2>
-          </div>
-          <div style={{ padding: "1.75rem 2rem", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "2px" }}>
-            {PLANS.map(p => {
-              const isCurrent = p.key === plan;
-              return (
-                <div key={p.key} style={{ backgroundColor: isCurrent ? "rgba(196,98,45,0.08)" : S.card, border: isCurrent ? `2px solid ${S.terra}` : `2px solid transparent`, padding: "1.5rem" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
-                    <span style={{ color: isCurrent ? S.terra : S.muted }}>{p.icon}</span>
-                    <span style={{ fontFamily: S.sans, fontSize: "0.65rem", letterSpacing: "0.2em", color: isCurrent ? S.terra : S.muted, fontWeight: 600 }}>{p.label}</span>
-                    {isCurrent && <span style={{ fontFamily: S.sans, fontSize: "0.55rem", letterSpacing: "0.1em", backgroundColor: S.terra, color: "#fff", padding: "0.15rem 0.4rem" }}>ACTUEL</span>}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", marginBottom: "0.25rem" }}>
-                    <span style={{ fontFamily: S.serif, fontSize: "1.5rem", fontWeight: 800, color: S.brown }}>{p.priceLaunch}</span>
-                    {p.priceNormal && <span style={{ fontFamily: S.sans, fontSize: "0.78rem", color: S.muted, textDecoration: "line-through" }}>{p.priceNormal}</span>}
-                  </div>
-                  {p.key !== "free" && (
-                    <span style={{ display: "inline-block", backgroundColor: "rgba(196,98,45,0.12)", color: S.terra, fontFamily: S.sans, fontSize: "0.55rem", letterSpacing: "0.12em", padding: "0.15rem 0.4rem", fontWeight: 600, marginBottom: "0.4rem" }}>
-                      PRIX DE LANCEMENT
-                    </span>
-                  )}
-                  <p style={{ fontFamily: S.sans, fontSize: "0.65rem", fontWeight: 300, color: S.muted, marginBottom: "1rem", lineHeight: 1.5 }}>{p.mention}</p>
-                  <ul style={{ listStyle: "none", padding: 0, margin: "0 0 1rem" }}>
-                    {p.features.map(f => (
-                      <li key={f.text} style={{ fontFamily: S.sans, fontSize: "0.72rem", fontWeight: 300, color: f.ok ? S.brown : S.muted, marginBottom: "0.3rem", display: "flex", alignItems: "flex-start", gap: "0.4rem", lineHeight: 1.45 }}>
-                        <span style={{ flexShrink: 0, marginTop: "0.05rem", color: f.ok ? (isCurrent ? S.terra : "#2C7A4B") : S.border, fontWeight: 600, fontSize: "0.78rem" }}>
-                          {f.ok ? "✓" : "✗"}
-                        </span>
-                        {f.text}
-                      </li>
-                    ))}
-                  </ul>
-                  <button
-                    disabled={isCurrent}
-                    onClick={() => setConfirmPlan(p.key)}
-                    style={{ width: "100%", backgroundColor: isCurrent ? S.border : S.terra, color: "#fff", border: "none", padding: "0.7rem", fontFamily: S.sans, fontSize: "0.62rem", letterSpacing: "0.2em", cursor: isCurrent ? "not-allowed" : "pointer" }}
-                  >
-                    {isCurrent ? "PLAN ACTUEL" : "CHOISIR"}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ padding: "1rem 2rem", borderTop: `1px solid ${S.border}`, display: "flex", justifyContent: "flex-end" }}>
-            <button onClick={() => setModalPlans(false)} style={btnOutline}>FERMER</button>
-          </div>
-        </Modal>
-      )}
-
-      {/* ── Confirmation de changement de plan ── */}
-      {confirmPlan && (
-        <Modal onClose={() => setConfirmPlan(null)} maxWidth={440}>
-          <div style={{ padding: "2rem" }}>
-            {(() => {
-              const p = PLANS.find(p => p.key === confirmPlan)!;
-              return (
-                <>
-                  <h3 style={{ fontFamily: S.serif, fontSize: "1.3rem", fontWeight: 800, color: S.brown, marginBottom: "0.75rem" }}>
-                    Passer au plan {p.label} ?
-                  </h3>
-                  <p style={{ fontFamily: S.sans, fontSize: "0.82rem", fontWeight: 300, color: S.muted, lineHeight: 1.6, marginBottom: "1.5rem" }}>
-                    Votre abonnement passera au plan <strong style={{ color: S.brown }}>{p.label}</strong> pour <strong style={{ color: S.brown }}>{p.priceLaunch}</strong>.{" "}
-                    {p.mention}
-                  </p>
-                  <div style={{ display: "flex", gap: "0.75rem" }}>
-                    <button onClick={confirmChangePlan} style={{ ...btnTerra(), flex: 1 }}>CONFIRMER</button>
-                    <button onClick={() => setConfirmPlan(null)} style={btnOutline}>ANNULER</button>
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-        </Modal>
-      )}
-
-      {/* ── Facturation ── */}
-      {modalFactures && (
-        <Modal onClose={() => setModalFactures(false)} maxWidth={520}>
-          <div style={{ padding: "1.75rem 2rem", borderBottom: `1px solid ${S.border}` }}>
-            <p style={{ fontFamily: S.sans, fontSize: "0.6rem", letterSpacing: "0.2em", color: S.terra, marginBottom: "0.35rem" }}>ABONNEMENT</p>
-            <h2 style={{ fontFamily: S.serif, fontSize: "1.35rem", fontWeight: 800, color: S.brown }}>Historique de facturation</h2>
-          </div>
-          <div style={{ border: `1px solid ${S.border}`, margin: "1.5rem 2rem" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", padding: "0.75rem 1rem", borderBottom: `1px solid ${S.border}` }}>
-              {["RÉFÉRENCE", "DATE", "MONTANT", ""].map((h, i) => (
-                <span key={i} style={{ fontFamily: S.sans, fontSize: "0.6rem", letterSpacing: "0.2em", color: S.muted }}>{h}</span>
-              ))}
-            </div>
-            {FACTURES.map((f, i) => (
-              <div key={f.ref} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", padding: "1rem", alignItems: "center", borderBottom: i < FACTURES.length - 1 ? `1px solid ${S.border}` : "none" }}>
-                <span style={{ fontFamily: S.sans, fontSize: "0.78rem", color: S.brown, fontWeight: 500 }}>{f.ref}</span>
-                <span style={{ fontFamily: S.sans, fontSize: "0.78rem", fontWeight: 300, color: S.muted }}>{f.date}</span>
-                <span style={{ fontFamily: S.sans, fontSize: "0.78rem", fontWeight: 300, color: S.brown }}>{f.montant}</span>
-                <button style={{ display: "flex", alignItems: "center", gap: "0.3rem", backgroundColor: "transparent", border: `1px solid ${S.border}`, padding: "0.35rem 0.75rem", cursor: "pointer", fontFamily: S.sans, fontSize: "0.58rem", letterSpacing: "0.15em", color: S.muted }}>
-                  <Download size={11} strokeWidth={1.5} /> PDF
-                </button>
-              </div>
-            ))}
-          </div>
-          <div style={{ padding: "0 2rem 1.5rem", display: "flex", justifyContent: "flex-end" }}>
-            <button onClick={() => setModalFactures(false)} style={btnOutline}>FERMER</button>
-          </div>
-        </Modal>
-      )}
 
       {/* ── Suppression compte ── */}
       {modalDelete && (

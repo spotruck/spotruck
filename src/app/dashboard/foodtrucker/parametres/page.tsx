@@ -202,6 +202,13 @@ export default function ParametresPage() {
       if (!alive) return;
       setEmail(user.email || "");
 
+      // Resynchronise avec Stripe (au cas où l'abonnement a changé côté Stripe)
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const tk = sess.session?.access_token;
+        if (tk) await fetch("/api/stripe/sync", { method: "POST", headers: { Authorization: `Bearer ${tk}` } });
+      } catch {}
+
       const { data: ft } = await supabase
         .from("foodtruckers")
         .select("plan, plan_expire_at, plan_status, plan_cancel_at_period_end")

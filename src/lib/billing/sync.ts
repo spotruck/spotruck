@@ -33,7 +33,7 @@ export async function applySubscription(sub: Stripe.Subscription, userIdHint?: s
       stripe_customer_id: customerId,
       stripe_subscription_id: sub.id,
       plan_status: sub.status,
-      plan_cancel_at_period_end: !!sub.cancel_at_period_end,
+      plan_cancel_at_period_end: !!sub.cancel_at_period_end || !!sub.cancel_at,
       plan: active ? keepPlan : "free",
       plan_expire_at: active && end ? new Date((end + GRACE_DAYS * 86400) * 1000).toISOString() : null,
     })

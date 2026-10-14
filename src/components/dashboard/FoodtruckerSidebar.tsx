@@ -18,6 +18,7 @@ const S = {
 const NAV = [
   { icon: LayoutDashboard, label: "TABLEAU DE BORD",  href: "/dashboard/foodtrucker" },
   { icon: User,            label: "MON PROFIL",        href: "/dashboard/foodtrucker/profil" },
+  { icon: FileText,        label: "MON DOSSIER PDF",   href: "/dashboard/foodtrucker/dossier" },
   { icon: Search,          label: "OPPORTUNITÉS",      href: "/dashboard/foodtrucker/opportunites" },
   { icon: FileText,        label: "CANDIDATURES",      href: "/dashboard/foodtrucker/candidatures" },
   { icon: MessageSquare,   label: "MESSAGERIE",        href: "/dashboard/foodtrucker/messagerie" },

@@ -62,6 +62,11 @@ export default async function ProfilPage() {
     plan: foodtrucker?.plan || 'free',
     photos: initialPhotos,
     documents: initialDocuments,
+    logoUrl: foodtrucker?.logo_url || '',
+    couleurPrincipale: foodtrucker?.couleur_principale || '#C4622D',
+    couleurSecondaire: foodtrucker?.couleur_secondaire || '#2C1810',
+    carteUrl: foodtrucker?.carte_url || '',
+    carteNom: foodtrucker?.carte_nom || '',
   };
 
   // Préparer les données pour la sidebar

@@ -1,4 +1,5 @@
 "use client";
+import DossierButton from "./DossierButton";
 import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import FoodtruckerSidebar from "@/components/dashboard/FoodtruckerSidebar";
 import { createClient } from "@/lib/supabase/client";
@@ -351,6 +352,8 @@ function ModaleFiche({
               {event.instructionsCandidature}
             </p>
 
+            <DossierButton evenementId={String((event as { id?: string | number }).id ?? "")} />
+
             {/* ── MODE FORMULAIRE SPOTRUCK ── */}
             {event.modeCandidature === "formulaire_spotruck" && (
               <div style={{ backgroundColor: S.card, border: `1px solid ${S.border}`, padding: "1.5rem" }}>
@@ -535,7 +538,7 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
     for (const file of files) {
       // Le premier segment du chemin doit être l'uid du foodtrucker : c'est ce que
       // vérifie la policy RLS "Foodtrucker uploads own files" sur storage.objects.
-      const path = `${foodtruckerId}/candidatures/${ev.id}/${Date.now()}-${file.name}`;
+      const path = `${foodtruckerId}/candidatures/${ev.id}/${Date.now()}-${file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]+/g, "-")}`;
       const { error: uploadError } = await supabase.storage.from("spotruck-uploads").upload(path, file);
       if (uploadError) { uploadFailures++; continue; }
       const { data: pub } = supabase.storage.from("spotruck-uploads").getPublicUrl(path);
@@ -813,6 +816,7 @@ export default function OpportunitesClient({ initialEvenements, userPlan, userDa
 
                     {/* Actions */}
                     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", flexShrink: 0, alignItems: "flex-end" }}>
+                      <DossierButton compact evenementId={String(ev.id)} />
                       {ev.urlSource && ev.urlSource !== "#" ? (
                         <a
                           href={ev.urlSource}

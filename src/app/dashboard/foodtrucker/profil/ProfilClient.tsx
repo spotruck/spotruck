@@ -37,6 +37,11 @@ interface ProfilData {
   plan: string;
   photos: Photo[];
   documents: Record<string, UploadedDoc>;
+  logoUrl: string;
+  couleurPrincipale: string;
+  couleurSecondaire: string;
+  carteUrl: string;
+  carteNom: string;
 }
 
 // ─── Helpers UI ───────────────────────────────────────────────
@@ -109,6 +114,104 @@ function ProfilClientInner({ initialData, userId, userData }: { initialData: Pro
   // Photos
   const [photos, setPhotos] = useState<Photo[]>(initialData.photos);
 
+  // Identité visuelle (logo + couleurs, utilisés dans le dossier PDF)
+  const [logoUrl, setLogoUrl] = useState(initialData.logoUrl);
+  const [couleurPrincipale, setCouleurPrincipale] = useState(initialData.couleurPrincipale);
+  const [couleurSecondaire, setCouleurSecondaire] = useState(initialData.couleurSecondaire);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoError, setLogoError] = useState("");
+
+  // Carte / menu (PDF ou image, ajoutée au dossier PDF)
+  const [carteUrl, setCarteUrl] = useState(initialData.carteUrl);
+  const [carteNom, setCarteNom] = useState(initialData.carteNom);
+  const [carteUploading, setCarteUploading] = useState(false);
+  const [carteError, setCarteError] = useState("");
+
+  async function handleCarte(file: File | null) {
+    if (!file) return;
+    setCarteError("");
+    if (!["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(file.type)) { setCarteError("Format invalide — PDF, PNG ou JPG."); return; }
+    if (file.size > 10 * 1024 * 1024) { setCarteError("Fichier trop lourd (max 10 Mo)."); return; }
+    setCarteUploading(true);
+    const supabase = createClient();
+    const safe = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]+/g, "-");
+    const path = `${userId}/carte/${Date.now()}-${safe}`;
+    const { error: upErr } = await supabase.storage.from("spotruck-uploads").upload(path, file);
+    setCarteUploading(false);
+    if (upErr) { console.error("[carte] Échec upload:", upErr.message); setCarteError("Échec de l'envoi de la carte."); return; }
+    const { data: pub } = supabase.storage.from("spotruck-uploads").getPublicUrl(path);
+    setCarteUrl(pub.publicUrl);
+    setCarteNom(file.name);
+  }
+  const logoBtn: React.CSSProperties = {
+    border: `1px solid ${S.border}`, backgroundColor: "transparent", color: S.brown,
+    padding: "0.5rem 1rem", fontFamily: S.sans, fontSize: "0.65rem",
+    letterSpacing: "0.15em", cursor: "pointer",
+  };
+
+  type Rgb = { r: number; g: number; b: number };
+  async function detectColors(src: Blob | string) {
+    let objUrl = "";
+    try {
+      const url = typeof src === "string" ? src : (objUrl = URL.createObjectURL(src));
+      const img = new Image();
+      if (typeof src === "string") img.crossOrigin = "anonymous";
+      await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error("img")); img.src = url; });
+      const N = 64;
+      const c = document.createElement("canvas");
+      c.width = N; c.height = N;
+      const ctx = c.getContext("2d");
+      if (!ctx) return;
+      const sc = Math.min(N / img.width, N / img.height);
+      ctx.drawImage(img, 0, 0, img.width * sc, img.height * sc);
+      const { data } = ctx.getImageData(0, 0, N, N);
+      const buckets = new Map<number, { n: number; r: number; g: number; b: number }>();
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] < 128) continue;
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        if (Math.min(r, g, b) > 235) continue;
+        const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+        const e = buckets.get(key) || { n: 0, r: 0, g: 0, b: 0 };
+        e.n++; e.r += r; e.g += g; e.b += b;
+        buckets.set(key, e);
+      }
+      const list = Array.from(buckets.values()).map((e) => {
+        const r = e.r / e.n, g = e.g / e.n, b = e.b / e.n;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        const sat = mx === 0 ? 0 : (mx - mn) / mx;
+        return { r, g, b, score: e.n * (0.25 + sat) };
+      }).sort((x, y) => y.score - x.score);
+      if (!list.length) return;
+      const hex = (c: Rgb) => "#" + [c.r, c.g, c.b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+      const dist = (p: Rgb, q: Rgb) => Math.hypot(p.r - q.r, p.g - q.g, p.b - q.b);
+      const first = list[0];
+      const second = list.find((c) => dist(c, first) > 90);
+      setCouleurPrincipale(hex(first));
+      if (second) setCouleurSecondaire(hex(second));
+    } catch {
+      setLogoError("Couleurs non détectées automatiquement — choisis-les à la main.");
+    } finally {
+      if (objUrl) URL.revokeObjectURL(objUrl);
+    }
+  }
+
+  async function handleLogo(file: File | null) {
+    if (!file) return;
+    setLogoError("");
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) { setLogoError("Format invalide — PNG, JPG ou WebP."); return; }
+    if (file.size > 5 * 1024 * 1024) { setLogoError("Fichier trop lourd (max 5 Mo)."); return; }
+    setLogoUploading(true);
+    const supabase = createClient();
+    const safe = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]+/g, "-");
+    const path = `${userId}/logo/${Date.now()}-${safe}`;
+    const { error: upErr } = await supabase.storage.from("spotruck-uploads").upload(path, file);
+    setLogoUploading(false);
+    if (upErr) { console.error("[logo] Échec upload:", upErr.message); setLogoError("Échec de l'envoi du logo."); return; }
+    const { data: pub } = supabase.storage.from("spotruck-uploads").getPublicUrl(path);
+    setLogoUrl(pub.publicUrl);
+    detectColors(file);
+  }
+
   // Documents
   const [docState, setDocState] = useState<Record<string, UploadedDoc>>(initialData.documents);
   const [docErrors, setDocErrors] = useState<Record<string, string>>({});
@@ -169,6 +272,11 @@ function ProfilClientInner({ initialData, userId, userData }: { initialData: Pro
           photo_truck_url: photos[0]?.url ?? null,
           photos_plats: photos.slice(1).map(p => p.url),
           documents: docState,
+          logo_url: logoUrl || null,
+          couleur_principale: couleurPrincipale,
+          couleur_secondaire: couleurSecondaire,
+          carte_url: carteUrl || null,
+          carte_nom: carteNom || null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', userId)
@@ -226,6 +334,69 @@ function ProfilClientInner({ initialData, userId, userData }: { initialData: Pro
             {error}
           </div>
         )}
+
+        {/* ── 0. Identité visuelle ── */}
+        <section style={{ marginBottom: "3rem" }}>
+          <SectionHeader title="Identité visuelle" />
+          <p style={{ fontFamily: S.sans, fontSize: "0.8rem", color: S.muted, marginBottom: "1.25rem" }}>
+            Ton logo et tes couleurs apparaissent sur la couverture de ton dossier de candidature PDF.
+          </p>
+          <div style={{ display: "flex", gap: "2.5rem", flexWrap: "wrap", alignItems: "flex-start" }}>
+            <div>
+              <span style={labelStyle}>LOGO</span>
+              <div style={{ width: 160, height: 160, border: `1px dashed ${S.border}`, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#fff" }}>
+                {logoUrl
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img src={logoUrl} alt="Logo" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                  : <span style={{ fontFamily: S.sans, fontSize: "0.7rem", color: S.muted }}>Aucun logo</span>}
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                <label style={logoBtn}>
+                  {logoUploading ? "ENVOI…" : logoUrl ? "CHANGER" : "AJOUTER"}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: "none" }}
+                    onChange={(e) => { handleLogo(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+                </label>
+                {logoUrl && <button type="button" style={logoBtn} onClick={() => setLogoUrl("")}>RETIRER</button>}
+                {logoUrl && <button type="button" style={logoBtn} onClick={() => detectColors(logoUrl)}>DÉTECTER LES COULEURS</button>}
+              </div>
+              {logoError && <p style={{ fontFamily: S.sans, fontSize: "0.72rem", color: "#B3261E", marginTop: "0.5rem" }}>{logoError}</p>}
+            </div>
+            <div>
+              <span style={labelStyle}>COULEUR PRINCIPALE</span>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "1.25rem" }}>
+                <input type="color" value={couleurPrincipale} onChange={(e) => setCouleurPrincipale(e.target.value)} style={{ width: 48, height: 40, border: "none", background: "none", cursor: "pointer" }} />
+                <input type="text" value={couleurPrincipale} onChange={(e) => setCouleurPrincipale(e.target.value)} style={{ ...inputStyle, width: 110 }} />
+              </div>
+              <span style={labelStyle}>COULEUR SECONDAIRE</span>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <input type="color" value={couleurSecondaire} onChange={(e) => setCouleurSecondaire(e.target.value)} style={{ width: 48, height: 40, border: "none", background: "none", cursor: "pointer" }} />
+                <input type="text" value={couleurSecondaire} onChange={(e) => setCouleurSecondaire(e.target.value)} style={{ ...inputStyle, width: 110 }} />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Carte / menu ── */}
+        <section style={{ marginBottom: "3rem" }}>
+          <SectionHeader title="Notre carte" />
+          <p style={{ fontFamily: S.sans, fontSize: "0.8rem", color: S.muted, marginBottom: "1.25rem" }}>
+            Ta carte (PDF ou photo) est ajoutée à ton dossier de candidature PDF.
+          </p>
+          <div style={{ marginBottom: "0.75rem" }}>
+            {carteUrl
+              ? <a href={carteUrl} target="_blank" rel="noreferrer" style={{ fontFamily: S.sans, fontSize: "0.85rem", color: S.terra }}>{carteNom || "Voir la carte"} ↗</a>
+              : <span style={{ fontFamily: S.sans, fontSize: "0.8rem", color: S.muted }}>Aucune carte ajoutée</span>}
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <label style={logoBtn}>
+              {carteUploading ? "ENVOI…" : carteUrl ? "CHANGER" : "AJOUTER LA CARTE"}
+              <input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" style={{ display: "none" }}
+                onChange={(e) => { handleCarte(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+            </label>
+            {carteUrl && <button type="button" style={logoBtn} onClick={() => { setCarteUrl(""); setCarteNom(""); }}>RETIRER</button>}
+          </div>
+          {carteError && <p style={{ fontFamily: S.sans, fontSize: "0.72rem", color: "#B3261E", marginTop: "0.5rem" }}>{carteError}</p>}
+        </section>
 
         {/* ── 1. Photos ── */}
         <section style={{ marginBottom: "3rem" }}>

@@ -73,12 +73,12 @@ export default function DocumentUpload({ userId, docs, errors, onChange, onError
   async function handleFile(key: string, file: File | null) {
     if (!file) return;
     onError(key, "");
-    if (file.type !== "application/pdf") { onError(key, "Format invalide — PDF uniquement."); return; }
+    if (!["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(file.type)) { onError(key, "Format invalide — PDF, PNG ou JPG uniquement."); return; }
     if (file.size > MAX_MB * 1024 * 1024) { onError(key, `Fichier trop lourd (max ${MAX_MB} Mo).`); return; }
 
     setUploadingKey(key);
     const supabase = createClient();
-    const path = `${userId}/documents/${key}/${Date.now()}-${file.name}`;
+    const path = `${userId}/documents/${key}/${Date.now()}-${file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]+/g, "-")}`;
 
     // Upload dans le Storage uniquement. La persistance en base se fait, comme
     // pour la photo, via le bouton « Sauvegarder » qui écrit la colonne JSONB
@@ -192,7 +192,7 @@ export default function DocumentUpload({ userId, docs, errors, onChange, onError
               </div>
             )}
 
-            <input type="file" accept="application/pdf" style={{ display: "none" }}
+            <input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" style={{ display: "none" }}
               ref={(el) => { inputRefs.current[doc.key] = el; }}
               onChange={(e) => handleFile(doc.key, e.target.files?.[0] ?? null)}
             />
